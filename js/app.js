@@ -147,7 +147,8 @@ function renderDash() {
     return (y.wrVsExpected ?? -9) - (x.wrVsExpected ?? -9);
   }).map((d, i) => {
     const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artImg(d.art, "art", artPosOf(d))}
-      <div style="min-width:0"><div class="name">${esc(shortName(d.commander))}</div><div class="theme" style="display:flex;align-items:center;gap:6px">${ciPips(deckCI(d))} ${esc(d.theme)}</div></div></div>`;
+      <div style="min-width:0"><div class="name">${esc(shortName(d.commander))}</div>
+        <div class="theme" style="display:flex;align-items:center;gap:6px;min-width:0">${ciPips(deckCI(d))}<span class="theme-txt">${esc(d.theme)}</span></div></div></div>`;
     if (!d.games) return `<div class="lb-row low" data-deck="${d.id}"><div class="rank">–</div>
       ${idCell}<div class="metric" style="color:var(--muted)">—<small>Not played</small></div></div>`;
     const low = d.games < MIN_GAMES;
@@ -155,7 +156,7 @@ function renderDash() {
     return `<div class="lb-row ${low ? "low" : ""}" data-deck="${d.id}">
       <div class="rank">${i + 1}</div>
       ${idCell.replace('class="name">', `class="name">${low ? '<span class="flag" title="few games — still noisy">⚠</span> ' : ""}`)}
-      <div class="metric ${cls}">${signed(d.wrVsExpected)}<small>${d.games} games · ${pct(d.actualWR)} WR</small></div>
+      <div class="metric ${cls}">${signed(d.wrVsExpected)}<small>${d.games} game${d.games === 1 ? "" : "s"}</small></div>
     </div>`;
   }).join("");
 
@@ -487,7 +488,7 @@ function renderQuickLog() {
   v.querySelectorAll(".opp-picker").forEach(mount => {
     const i = +mount.dataset.i;
     makePicker(mount, draft.opponents[i], upd => Object.assign(draft.opponents[i],
-      { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second }));
+      { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second }), { pips: false });
   });
   v.querySelector("#save-game").addEventListener("click", saveGame);
 }
@@ -770,23 +771,23 @@ function renderLiveGame(g) {
   const rows = g.participants.map((p, i) => {
     const isMe = p.playerId === "me";
     const lead = setup ? `${i + 1}.` : `<strong>${ord(i + 1)}</strong>`;
-    const ctrl = `<span class="part-drag" title="Drag to reorder">⠿</span>`;
     const myDeck = isMe ? S.deckById(p.deckId) : null;
     let cmdField;
     if (isMe) {
       cmdField = setup
-        ? `<div style="display:flex;align-items:center;gap:8px">${artImg(myDeck?.art, "art art-sm")}<select class="part-deck" style="flex:1">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>${ciPips(deckCI(myDeck))}</div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px">${artImg(myDeck?.art, "art art-sm")}<span>${esc(myDeck?.commander || "—")}</span></div>`;
+        ? `<div style="display:flex;align-items:center;gap:8px"><select class="part-deck" style="flex:1">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>${artImg(myDeck?.art, "art art-sm")}</div>`
+        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(myDeck?.commander || "—")}</span>${artImg(myDeck?.art, "art art-sm")}</div>`;
     } else {
       cmdField = setup
         ? `<div class="part-picker" data-uid="${p.uid}"></div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px">${artImg(p.art, "art art-sm")}<span>${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</span></div>`;
+        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</span>${artImg(p.art, "art art-sm")}</div>`;
     }
-    const rm = (setup && !isMe) ? `<button class="part-rm" data-rm="${p.uid}">✕</button>` : "";
+    // keep the drag handle (and a spacer where there's no ✕) in a fixed column so they line up
+    const rm = !setup ? "" : (isMe ? `<span class="part-rm-spacer"></span>` : `<button class="part-rm" data-rm="${p.uid}">✕</button>`);
     return `<div class="part-row ${isMe ? "me" : ""}" data-uid="${p.uid}">
       <span class="part-lead">${lead}</span>
-      <div class="part-body"><div class="part-name">${esc(p.name)}${setup ? "" : ` <span class="sub">· turn ${p.turn}</span>`}</div>${cmdField}</div>
-      ${ctrl}${rm}</div>`;
+      <div class="part-body"><div class="part-name">${esc(p.name)}${setup ? "" : ` <span class="sub">· Turn ${p.turn}</span>`}</div>${cmdField}</div>
+      <span class="part-drag" title="Drag to reorder">⠿</span>${rm}</div>`;
   }).join("");
 
   const addBtns = setup ? `<div class="add-players">
@@ -796,10 +797,7 @@ function renderLiveGame(g) {
   return `
     <div class="live-head"><h2>${setup ? "Live game · setup" : "Finishing order"}</h2>
       <button class="back" id="live-cancel">Discard</button></div>
-    <p class="hint" style="margin-top:0">${setup
-      ? "Add everyone in <b>turn order</b> (1 = goes first) — drag ⠿ to reorder."
-      : "Drag ⠿ into <b>finishing order</b> — top = winner. Turn order is kept from setup."}</p>
-    ${setup ? `<div class="field"><label>Date</label><input id="live-date" type="date" value="${g.date}" /></div>` : ""}
+    ${setup ? `<div class="field" style="margin-top:10px"><label>Date</label><input id="live-date" type="date" value="${g.date}" /></div>` : ""}
     <div class="part-list">${rows}</div>
     ${addBtns}
     ${setup
@@ -830,7 +828,7 @@ function bindLive() {
       const g = S.getActive(); const pp = g.participants.find(x => x.uid === uid); if (!pp) return;
       Object.assign(pp, { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second });
       saveActive(g);
-    });
+    }, { pips: false });
   });
   v.querySelectorAll("#live-notes, #live-date").forEach(el => el.addEventListener("change", liveSyncDom));
   v.querySelector(".part-deck")?.addEventListener("change", () => { liveSyncDom(); renderLog(); });  // refresh my art
@@ -883,12 +881,12 @@ function renderEdit() {
     const isMe = s.playerId === "me";
     const myDeck = isMe ? S.deckById(s.deckId) : null;
     const who = isMe
-      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><span class="ed-me-art">${artImg(myDeck?.art, "art art-sm")}</span><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select></div>`
+      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select><span class="ed-me-art">${artImg(myDeck?.art, "art art-sm")}</span></div>`
       : `<select class="ed-player"><option value="">Guest</option>${roster.map(p => `<option value="${p.id}" ${p.id === s.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
          <div class="ed-picker" data-i="${i}"></div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-i="${i}">
       <div class="part-body">${who}</div>
-      <div class="ed-nums"><label>place ${numSel("ed-place", s.placement, "?")}</label><label>turn ${numSel("ed-turn", s.seat, "?")}</label></div>
+      <div class="ed-nums"><label><span class="lbl">Place</span>${numSel("ed-place", s.placement, "?")}</label><label><span class="lbl">Turn</span>${numSel("ed-turn", s.seat, "?")}</label></div>
     </div>`;
   }).join("");
 
@@ -902,7 +900,7 @@ function renderEdit() {
   const v = $("#view-edit");
   v.querySelectorAll(".ed-picker").forEach(mount => {
     const i = +mount.dataset.i; const s = g.seats[i]; const d = s.deckId ? S.deckById(s.deckId) : null;
-    editPickers[i] = makePicker(mount, { commander: s.commander || d?.commander || "", commander2: s.commander2 || d?.commander2 || null, art: s.art || d?.art || null, ci: s.ci || d?.ci || [] }, () => {});
+    editPickers[i] = makePicker(mount, { commander: s.commander || d?.commander || "", commander2: s.commander2 || d?.commander2 || null, art: s.art || d?.art || null, ci: s.ci || d?.ci || [] }, () => {}, { pips: false });
   });
   v.querySelector(".ed-deck")?.addEventListener("change", e => {
     const d = S.deckById(e.target.value);
@@ -1021,7 +1019,8 @@ function openDecks() {
 let pickerSeq = 0;
 const SECOND_LABEL = { partner:"Partner", partnerWith:"Partner with", background:"Background", friends:"Friends forever", companion:"Doctor", doctor:"Companion" };
 
-function makePicker(mount, initial = {}, onChange = () => {}) {
+function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
+  const showPips = opts.pips !== false;
   const v = {
     commander: initial.commander || "", commander2: initial.commander2 || null,
     art: initial.art || null, art2: initial.art2 || null, ci: (initial.ci || []).slice(),
@@ -1035,7 +1034,7 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
       <div class="primary-head" style="display:flex;align-items:center;gap:8px">
         <input class="primary-input" type="text" placeholder="Commander…" value="${esc(v.commander)}" autocomplete="off" style="flex:1" />
         <span class="art-slot">${v.art ? artImg(v.art, "art art-sm") : ""}</span>
-        <span class="pips-slot">${ciPips(v.ci)}</span>
+        ${showPips ? `<span class="pips-slot">${ciPips(v.ci)}</span>` : ""}
       </div>
       <div class="ac-list primary-list" hidden></div>
     </div>
@@ -1048,7 +1047,7 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
   const secondSlot = mount.querySelector(".second-slot");
 
   const emit = () => onChange({ ...v, ci: v.ci.slice() });
-  const refreshPips = () => { v.ci = SF.mergeCI(v.baseCi, v.ci2); pipsSlot.innerHTML = ciPips(v.ci); };
+  const refreshPips = () => { v.ci = SF.mergeCI(v.baseCi, v.ci2); if (pipsSlot) pipsSlot.innerHTML = ciPips(v.ci); };
 
   function renderList(el, names, onPick) {
     if (!names.length) { el.hidden = true; el.innerHTML = ""; return; }
