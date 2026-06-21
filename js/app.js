@@ -375,13 +375,14 @@ function renderRivals() {
   // bogey decks — opponent decks with at least 2 *recorded* finishes vs me, worst first
   const bog = M.bogeyDecks(games);
   const bogRows = Object.entries(bog)
-    .map(([k, b]) => { const d = S.deckById(k); return { name: d?.commander || k, art: d?.art || null, decided: b.aboveMe + b.belowMe, ...b }; })
+    .map(([k, b]) => { const d = S.deckById(k); return { name: d?.commander || k, name2: d?.commander2 || null, art: d?.art || null, decided: b.aboveMe + b.belowMe, ...b }; })
     .filter(b => b.decided >= 2)
     .sort((a, b) => (b.aboveMe / b.decided) - (a.aboveMe / a.decided) || b.decided - a.decided)
     .map(b => {
       const p = Math.round(b.aboveMe / b.decided * 100);
+      const label = esc(shortName(b.name)) + (b.name2 ? ` <span style="color:var(--muted)">+</span> ${esc(shortName(b.name2))}` : "");
       return `<div class="lb-row"><div class="rank">${b.faced}×</div>
-        <div style="display:flex;align-items:center;gap:9px;min-width:0">${b.art ? artImg(b.art) : ""}<div style="min-width:0"><div class="name">${esc(shortName(b.name))}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
+        <div style="display:flex;align-items:center;gap:9px;min-width:0">${b.art ? artImg(b.art) : ""}<div style="min-width:0"><div class="name">${label}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
         <div class="metric ${p >= 50 ? "neg" : "pos"}">${p}%<small>Beat me</small></div></div>`;
     }).join("");
 
@@ -835,8 +836,9 @@ function renderEdit() {
 
   const seatRows = g.seats.map((s, i) => {
     const isMe = s.playerId === "me";
+    const myDeck = isMe ? S.deckById(s.deckId) : null;
     const who = isMe
-      ? `<div class="part-name">Me</div><select class="ed-deck">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select>`
+      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><span class="ed-me-art">${artImg(myDeck?.art, "art art-sm")}</span><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select></div>`
       : `<select class="ed-player"><option value="">Guest</option>${roster.map(p => `<option value="${p.id}" ${p.id === s.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
          <div class="ed-picker" data-i="${i}"></div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-i="${i}">
@@ -856,6 +858,10 @@ function renderEdit() {
   v.querySelectorAll(".ed-picker").forEach(mount => {
     const i = +mount.dataset.i; const s = g.seats[i]; const d = s.deckId ? S.deckById(s.deckId) : null;
     editPickers[i] = makePicker(mount, { commander: s.commander || d?.commander || "", commander2: s.commander2 || d?.commander2 || null, art: s.art || d?.art || null, ci: s.ci || d?.ci || [] }, () => {});
+  });
+  v.querySelector(".ed-deck")?.addEventListener("change", e => {
+    const d = S.deckById(e.target.value);
+    e.target.closest("div").querySelector(".ed-me-art").innerHTML = d?.art ? artImg(d.art, "art art-sm") : "";
   });
   v.querySelector("#edit-close").addEventListener("click", () => switchTab("history"));
   v.querySelector("#edit-save").addEventListener("click", saveEdit);
@@ -1012,6 +1018,7 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
     primary.value = name; v.commander = name; primaryList.hidden = true;
     const c = await SF.getCard(name);
     if (c) { v.art = c.art; v.baseCi = c.ci; v.second = c.second; }
+    if (!v.second) { v.commander2 = null; v.art2 = null; v.ci2 = []; }   // new primary can't pair → drop any old partner
     artSlot.innerHTML = v.art ? artImg(v.art, "art art-sm") : "";
     refreshPips(); renderSecond(); emit();
   }
@@ -1023,7 +1030,7 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
   }
 
   function renderSecond() {
-    if (!v.second) { secondSlot.innerHTML = ""; v.commander2 = v.commander2 && v.second ? v.commander2 : null; return; }
+    if (!v.second) { secondSlot.innerHTML = ""; return; }   // keep commander2 — primary just hasn't resolved yet
     if (v.second.type === "partnerWith" && !v.commander2) { pickSecond(v.second.name); return; }
     secondSlot.innerHTML = `
       <div class="second-pick"><div class="second-label">${SECOND_LABEL[v.second.type] || "Second"}</div>
@@ -1049,6 +1056,16 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
   });
   primary.addEventListener("blur", () => setTimeout(() => primaryList.hidden = true, 150));
 
+  // pre-filled commander (edit/reopen): re-derive partner-ability so the second field shows again
+  if (v.commander && !v.second) {
+    SF.getCard(v.commander).then(async c => {
+      if (!c) return;
+      v.second = c.second; v.baseCi = c.ci;
+      if (!v.art) { v.art = c.art; artSlot.innerHTML = v.art ? artImg(v.art, "art art-sm") : ""; }
+      if (v.commander2) { const c2 = await SF.getCard(v.commander2); v.ci2 = c2?.ci || []; if (!v.art2) v.art2 = c2?.art || null; }
+      refreshPips(); renderSecond();
+    });
+  }
   renderSecond();
   return { getValue: () => ({ ...v, ci: v.ci.slice() }) };
 }
