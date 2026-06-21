@@ -1,0 +1,465 @@
+[
+  {
+    "id": "g1",
+    "date": "2026-02-20",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_kynaios",
+        "seat": 3,
+        "placement": 5
+      },
+      {
+        "playerId": null,
+        "commander": "Spider-Man 2099",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Auntie Ool, Cursewretch",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Anowon, the Ruin Thief",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Reyhan + Nadier",
+        "seat": null,
+        "placement": null
+      }
+    ],
+    "notes": ""
+  },
+  {
+    "id": "g2",
+    "date": "2026-02-20",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_belbe",
+        "seat": 3,
+        "placement": 1
+      },
+      {
+        "playerId": null,
+        "commander": "Momo, Friendly Flier",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Jasmine Boreal",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Frodo + Sam",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Reyhan + Nadier",
+        "seat": null,
+        "placement": null
+      }
+    ],
+    "notes": ""
+  },
+  {
+    "id": "g3",
+    "date": "2026-03-20",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_terra",
+        "seat": 2,
+        "placement": 3
+      },
+      {
+        "playerId": null,
+        "commander": "Basim Ibn Ishaq",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Reyhan + Nadier",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Jared Carthalion",
+        "seat": null,
+        "placement": null
+      }
+    ],
+    "notes": ""
+  },
+  {
+    "id": "g4",
+    "date": "2026-03-20",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_kynaios",
+        "seat": 1,
+        "placement": 4
+      },
+      {
+        "playerId": null,
+        "commander": "Baeloth + Raised By Giants",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Reyhan + Nadier",
+        "seat": null,
+        "placement": null
+      },
+      {
+        "playerId": null,
+        "commander": "Kamiz, Obscura Oculis",
+        "seat": null,
+        "placement": null
+      }
+    ],
+    "notes": ""
+  },
+  {
+    "id": "mg1",
+    "date": "2026-04-05",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_belbe",
+        "seat": 1,
+        "placement": 1
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 2,
+        "placement": 2
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 3,
+        "placement": 4
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 4,
+        "placement": 3
+      }
+    ]
+  },
+  {
+    "id": "mg2",
+    "date": "2026-04-12",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_kynaios",
+        "seat": 3,
+        "placement": 3
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 1,
+        "placement": 1
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 2,
+        "placement": 2
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg3",
+    "date": "2026-04-19",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_terra",
+        "seat": 2,
+        "placement": 4
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 1,
+        "placement": 1
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 3,
+        "placement": 2
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 4,
+        "placement": 3
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 5,
+        "placement": 5
+      }
+    ]
+  },
+  {
+    "id": "mg4",
+    "date": "2026-05-03",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_zidane",
+        "seat": 4,
+        "placement": 2
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 1,
+        "placement": 1
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 2,
+        "placement": 3
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 3,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg5",
+    "date": "2026-05-10",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_marchesa",
+        "seat": 2,
+        "placement": 1
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 1,
+        "placement": 2
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 3,
+        "placement": 3
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg6",
+    "date": "2026-05-17",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_kynaios",
+        "seat": 5,
+        "placement": 5
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 1,
+        "placement": 1
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 2,
+        "placement": 2
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 3,
+        "placement": 3
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg7",
+    "date": "2026-05-24",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_belbe",
+        "seat": 1,
+        "placement": 2
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 2,
+        "placement": 1
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 3,
+        "placement": 3
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg8",
+    "date": "2026-06-07",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_graha",
+        "seat": 3,
+        "placement": 1
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 1,
+        "placement": 2
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 2,
+        "placement": 3
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      }
+    ]
+  },
+  {
+    "id": "mg9",
+    "date": "2026-06-14",
+    "notes": "",
+    "seats": [
+      {
+        "playerId": "me",
+        "deckId": "d_terra",
+        "seat": 3,
+        "placement": 3
+      },
+      {
+        "playerId": "jordi",
+        "commander": "Atraxa, Praetors Voice",
+        "deckId": null,
+        "seat": 1,
+        "placement": 2
+      },
+      {
+        "playerId": "miel",
+        "commander": "Krenko, Mob Boss",
+        "deckId": null,
+        "seat": 2,
+        "placement": 1
+      },
+      {
+        "playerId": "bregt",
+        "commander": "Yuriko, the Tigers Shadow",
+        "deckId": null,
+        "seat": 4,
+        "placement": 4
+      },
+      {
+        "playerId": "linus",
+        "commander": "Chulane, Teller of Tales",
+        "deckId": null,
+        "seat": 5,
+        "placement": 5
+      }
+    ]
+  }
+]

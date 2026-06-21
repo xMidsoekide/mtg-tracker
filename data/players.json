@@ -1,0 +1,23 @@
+[
+  {
+    "id": "me",
+    "name": "Me",
+    "self": true
+  },
+  {
+    "id": "jordi",
+    "name": "Jordi"
+  },
+  {
+    "id": "miel",
+    "name": "Miel"
+  },
+  {
+    "id": "bregt",
+    "name": "Bregt"
+  },
+  {
+    "id": "linus",
+    "name": "Linus"
+  }
+]
