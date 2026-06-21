@@ -988,8 +988,8 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
   mount.innerHTML = `
     <div class="ac-wrap">
       <div class="primary-head" style="display:flex;align-items:center;gap:8px">
-        <span class="art-slot">${v.art ? artImg(v.art, "art art-sm") : ""}</span>
         <input class="primary-input" type="text" placeholder="Commander…" value="${esc(v.commander)}" autocomplete="off" style="flex:1" />
+        <span class="art-slot">${v.art ? artImg(v.art, "art art-sm") : ""}</span>
         <span class="pips-slot">${ciPips(v.ci)}</span>
       </div>
       <div class="ac-list primary-list" hidden></div>
@@ -1035,8 +1035,8 @@ function makePicker(mount, initial = {}, onChange = () => {}) {
     secondSlot.innerHTML = `
       <div class="second-pick"><div class="second-label">${SECOND_LABEL[v.second.type] || "Second"}</div>
         <div class="ac-wrap" style="display:flex;align-items:center;gap:8px">
-          <span class="art-slot2">${v.art2 ? artImg(v.art2, "art art-sm") : ""}</span>
           <input class="second-input" type="text" placeholder="${SECOND_LABEL[v.second.type] || "Second card"}…" value="${esc(v.commander2 || "")}" autocomplete="off" style="flex:1" />
+          <span class="art-slot2">${v.art2 ? artImg(v.art2, "art art-sm") : ""}</span>
           ${v.commander2 ? '<button class="clear-x" title="Clear">✕</button>' : ""}
           <div class="ac-list second-list" hidden></div>
         </div></div>`;
