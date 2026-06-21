@@ -20,10 +20,11 @@ export const disconnect = () => { cfg = {}; save(); };
 const headers = () => ({ Authorization: `Bearer ${cfg.token}`, Accept: "application/vnd.github+json" });
 
 async function req(url, opts = {}) {
-  // no-store + cache-bust: GitHub API responses are otherwise cached by the
-  // browser for ~60s, which makes a fresh pull return stale data.
+  // cache-bust query + no-store option avoid the browser serving a stale (~60s) cached
+  // response. NOTE: don't add a Cache-Control *header* — it's not CORS-safelisted and
+  // triggers a preflight GitHub rejects ("Failed to fetch").
   const u = url + (url.includes("?") ? "&" : "?") + "_=" + Date.now();
-  const r = await fetch(u, { ...opts, cache: "no-store", headers: { ...headers(), "Cache-Control": "no-cache" } });
+  const r = await fetch(u, { ...opts, cache: "no-store", headers: headers() });
   if (r.status === 401 || r.status === 403) throw new Error("Token rejected — check it has the Gist permission");
   if (!r.ok) throw new Error(`GitHub error ${r.status}`);
   return r;
