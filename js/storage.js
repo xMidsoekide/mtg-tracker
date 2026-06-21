@@ -18,8 +18,15 @@ export async function load() {
   const raw = localStorage.getItem(KEY);
   if (raw) { state = JSON.parse(raw); }
   else { state = await seed(); persist(); }
+  // one-time cleanup: drop the old demo games (their ids start with "mg").
+  // bumping updatedAt makes the cleaned data win the next gist sync.
+  const before = state.games.length;
+  state.games = dropDemo(state.games);
+  if (state.games.length !== before) { state.updatedAt = new Date().toISOString(); persist(); }
   return state;
 }
+
+const dropDemo = games => games.filter(g => !String(g.id).startsWith("mg"));
 
 function persist() {
   localStorage.setItem(KEY, JSON.stringify(state));
@@ -81,7 +88,7 @@ const clean = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v != n
 
 /* ---- bulk replace (used by import + gist pull) ---- */
 export const replaceAll = next => commit(s => {
-  s.players = next.players; s.decks = next.decks; s.games = next.games;
+  s.players = next.players; s.decks = next.decks; s.games = dropDemo(next.games);
   if (next.settings) s.settings = next.settings;
 });
 

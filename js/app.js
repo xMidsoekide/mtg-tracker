@@ -127,7 +127,7 @@ function renderDash() {
   const recent = [];
   for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
     const id = M.mySeat(g)?.deckId;
-    if (id && !recent.some(r => r.id === id)) recent.push({ id, date: g.date });
+    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date });
     if (recent.length === 3) break;
   }
   const recentCards = recent.map(r => {
