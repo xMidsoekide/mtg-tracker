@@ -662,6 +662,8 @@ document.addEventListener("visibilitychange", () => {
   else syncNow();
 });
 window.addEventListener("pagehide", () => { if (SYNC.isConfigured() && dirty) pushNow(); });
+// auto-pull while the tab is open, so a device left visible (e.g. the laptop) keeps catching up
+setInterval(() => { if (SYNC.isConfigured() && !document.hidden && !syncing) syncNow(); }, 20000);
 
 /* ---------- boot ---------- */
 (async function init() {
