@@ -51,7 +51,7 @@
   .lb-row { display:grid; grid-template-columns: 22px 1fr auto; gap:10px; align-items:center; padding: 12px 14px; border-top:1px solid var(--line); cursor:pointer; }
   .lb-row:first-child { border-top:0; }
   .lb-row .rank { color: var(--muted); font-weight:700; font-size:13px; text-align:center; }
-  .lb-row .name { font-weight:600; font-size:14.5px; }
+  .lb-row .name { font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .lb-row .theme { color: var(--muted); font-size:12px; margin-top:1px; }
   .lb-row .metric { text-align:right; font-weight:700; font-size:15px; }
   .lb-row .metric small { display:block; color:var(--muted); font-weight:500; font-size:11px; }
@@ -62,8 +62,9 @@
   .leaders { display:flex; gap:9px; overflow-x:auto; padding:1px 1px 4px; -webkit-overflow-scrolling:touch; }
   .leaders::-webkit-scrollbar { display:none; }
   .leader { flex:0 0 auto; min-width:108px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .leaders .leader { max-width:170px; }
   .leader .lt { font-size:11px; color:var(--muted); white-space:nowrap; }
-  .leader .ln { font-size:14px; font-weight:650; margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:120px; }
+  .leader .ln { font-size:14px; font-weight:650; margin-top:5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .leader .lv { font-size:13px; color:var(--accent); font-weight:700; margin-top:1px; }
   .leader .lv.pos { color:var(--good); } .leader .lv.neg { color:var(--bad); }
   .leader[data-deck] { cursor:pointer; }
@@ -205,7 +206,7 @@
   .deck-list { display:flex; flex-direction:column; gap:8px; }
   .deck-row { display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 13px; }
   .deck-info { flex:1; min-width:0; }
-  .deck-info .name { font-weight:600; font-size:14.5px; }
+  .deck-info .name { font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .deck-info .theme { color:var(--muted); font-size:12px; margin-top:2px; }
   .deck-acts { display:flex; gap:6px; }
   .icon-btn { background:var(--surface-2); border:1px solid var(--line); color:var(--text); width:34px; height:34px; border-radius:9px; font-size:14px; cursor:pointer; }

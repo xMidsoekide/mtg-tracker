@@ -8,7 +8,7 @@ const $ = (sel, root = document) => root.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
 const signed = x => x == null ? "–" : (x >= 0 ? "+" : "") + Math.round(x * 100) + "%";
-const shortName = c => (c || "").split(",")[0].split(" + ")[0];
+const shortName = c => (c || "").split(" + ")[0];   // full commander name; drop only the partner half
 
 /* commander identity display */
 const deckCI = d => d?.ci || [];
