@@ -9,6 +9,7 @@ const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt
 const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
 const signed = x => x == null ? "–" : (x >= 0 ? "+" : "") + Math.round(x * 100) + "%";
 const shortName = c => (c || "").split(" + ")[0];   // full commander name; drop only the partner half
+const euDate = iso => { const p = String(iso).split("-"); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso; };
 
 /* commander identity display */
 const deckCI = d => d?.ci || [];
@@ -313,7 +314,7 @@ function openDeck(deckId) {
     const opp = g.seats.filter(s => s.playerId !== "me")
       .map(s => esc((s.playerId ? (S.playerById(s.playerId)?.name + ": ") : "") + seatCards(s))).join(" · ");
     return `<div class="game-item"><div class="top">
-      <strong>${g.date} · ${g.seats.length}P · seat ${ms.seat ?? "?"}</strong>
+      <strong>${euDate(g.date)} · ${g.seats.length}P · seat ${ms.seat ?? "?"}</strong>
       <span class="badge" style="background:${w ? "#16382c" : "#3a1f1d"};color:${w ? "var(--good)" : "var(--bad)"}">${w ? "1st 🏆" : ord(ms.placement)}</span></div>
       <div class="note">vs ${opp}</div>${g.notes ? `<div class="note">📝 ${esc(g.notes)}</div>` : ""}</div>`;
   }).join("");
@@ -807,7 +808,7 @@ function renderHistory() {
     const w = ms && M.won(ms.placement);
     const badge = ms ? `<span class="badge" style="background:${w ? "#16382c" : "#3a1f1d"};color:${w ? "var(--good)" : "var(--bad)"}">${w ? "1st" : ord(ms.placement)}</span>` : "";
     return `<div class="game-item tap" data-game="${g.id}"><div class="top">
-      <strong>${g.date} · ${esc(myDeck)}</strong>${badge}</div>
+      <strong>${euDate(g.date)} · ${esc(myDeck)}</strong>${badge}</div>
       <div class="note">${g.seats.length}P · vs ${esc(opp)}</div></div>`;
   }).join("");
   $("#view-history").innerHTML = `
