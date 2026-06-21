@@ -11,13 +11,14 @@ async function seed() {
   const [players, decks, games] = await Promise.all(
     ["players", "decks", "games"].map(n => fetch(`data/${n}.json`).then(r => r.json()))
   );
-  return { players, decks, games, settings: { minGames: 2 }, updatedAt: null };
+  return { players, decks, games, deleted: [], settings: { minGames: 2 }, updatedAt: null };
 }
 
 export async function load() {
   const raw = localStorage.getItem(KEY);
   if (raw) { state = JSON.parse(raw); }
   else { state = await seed(); persist(); }
+  if (!Array.isArray(state.deleted)) state.deleted = [];   // tombstones: ids of deleted games
   // one-time cleanup: drop the old demo games (their ids start with "mg").
   // bumping updatedAt makes the cleaned data win the next gist sync.
   const before = state.games.length;
@@ -57,7 +58,10 @@ export const updateGame = (id, patch) => commit(s => {
   const i = s.games.findIndex(g => g.id === id);
   if (i >= 0) s.games[i] = { ...s.games[i], ...patch };
 });
-export const deleteGame = id => commit(s => { s.games = s.games.filter(g => g.id !== id); });
+export const deleteGame = id => commit(s => {
+  s.games = s.games.filter(g => g.id !== id);
+  (s.deleted ||= []).push(id);   // tombstone so the deletion syncs to other devices
+});
 
 export const addDeck = d => commit(s => s.decks.push(d));
 export const updateDeck = (id, patch) => commit(s => {
@@ -89,6 +93,7 @@ const clean = o => Object.fromEntries(Object.entries(o).filter(([, v]) => v != n
 /* ---- bulk replace (used by import + gist pull) ---- */
 export const replaceAll = next => commit(s => {
   s.players = next.players; s.decks = next.decks; s.games = dropDemo(next.games);
+  s.deleted = Array.isArray(next.deleted) ? next.deleted : (s.deleted || []);
   if (next.settings) s.settings = next.settings;
 });
 

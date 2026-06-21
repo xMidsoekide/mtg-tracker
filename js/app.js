@@ -543,31 +543,40 @@ function mergeById(winner, loser) {
 function mergeStates(local, remote) {
   const localNewer = (local.updatedAt || "") >= (remote.updatedAt || "");
   const w = localNewer ? local : remote, l = localNewer ? remote : local;
+  const deleted = [...new Set([...(local.deleted || []), ...(remote.deleted || [])])];
+  const del = new Set(deleted);
   return {
     players: mergeById(w.players || [], l.players || []),
     decks:   mergeById(w.decks   || [], l.decks   || []),
-    games:   mergeById(w.games   || [], l.games   || []),
+    games:   mergeById(w.games   || [], l.games   || []).filter(g => !del.has(g.id)),  // tombstoned deletes win
+    deleted,
     settings: w.settings || l.settings,
   };
 }
 
-/* pull → MERGE (never drops the other device's games) → push the union back */
+/* signature of what's worth syncing — game ids, deck ids, and tombstones */
+const syncSig = s => JSON.stringify([
+  (s.games || []).map(g => g.id).sort(),
+  (s.decks || []).map(d => d.id).sort(),
+  (s.deleted || []).slice().sort(),
+]);
+
+/* pull → MERGE (never drops the other device's games, deletes propagate via tombstones) → push back */
 async function syncNow() {
   if (!SYNC.isConfigured()) return;
   syncing = true; updateSyncBadge();
   try {
     const remote = await SYNC.pull();
-    let contributed = dirty;
+    let changed = dirty;
     if (remote) {
-      const remoteIds = new Set((remote.games || []).map(g => g.id));
+      const remoteSig = syncSig(remote);
       const beforeIds = allGames().map(g => g.id).sort().join();
       S.replaceAll(mergeStates(S.getState(), remote));
       MIN_GAMES = S.settings().minGames ?? MIN_GAMES;
-      const afterIds = allGames().map(g => g.id).sort().join();
-      if (beforeIds !== afterIds) switchTab(lastTab);                 // re-render only if the game set changed
-      contributed = contributed || allGames().some(g => !remoteIds.has(g.id));
+      if (allGames().map(g => g.id).sort().join() !== beforeIds) switchTab(lastTab);  // re-render if game set changed
+      changed = changed || syncSig(S.getState()) !== remoteSig;     // our merged set differs from the gist
     }
-    if (contributed || !remote) await SYNC.push(S.exportJson());      // push union back (skip if nothing new → no ping-pong)
+    if (changed || !remote) await SYNC.push(S.exportJson());        // push union back; skip if identical → no ping-pong
     dirty = false;
   } catch (e) { toast(e.message); }
   finally { syncing = false; updateSyncBadge(); }
