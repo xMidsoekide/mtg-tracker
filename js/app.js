@@ -389,7 +389,7 @@ function renderRivals() {
   $("#view-rivals").innerHTML = `
     <div class="section-head"><h2>Head-to-head</h2></div>
     ${cards || '<div class="empty">No games with named players yet.<br>Tag friends when you log a game.</div>'}
-    <div class="section-head"><h2>Toughest matchups</h2></div>
+    <div class="section-head"><h2>Nemesis decks</h2></div>
     ${bogRows ? `<div class="lb">${bogRows}</div>` : '<div class="empty">Play a few games with finishing order to see which decks beat you.</div>'}`;
 }
 
