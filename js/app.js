@@ -523,27 +523,51 @@ function markDirty() {
   dirty = true; updateSyncBadge();
   if (!SYNC.isConfigured()) return;
   clearTimeout(pushTimer);
-  pushTimer = setTimeout(() => pushNow(), 1500);   // debounce auto-push
+  pushTimer = setTimeout(() => pushNow(), 700);   // debounce auto-push
 }
 async function pushNow() {
   if (!SYNC.isConfigured() || syncing) return;
   syncing = true; updateSyncBadge();
   try { await SYNC.push(S.exportJson()); dirty = false; }
-  catch (e) { toast(e.message); }
+  catch (e) { toast(e.message); }                 // keep dirty so it retries on next trigger
   finally { syncing = false; updateSyncBadge(); }
 }
-/* last-write-wins reconcile against the gist */
+
+/* union by id; on an id-collision the record from the newer state wins */
+function mergeById(winner, loser) {
+  const m = new Map();
+  for (const x of loser) m.set(x.id, x);
+  for (const x of winner) m.set(x.id, x);
+  return [...m.values()];
+}
+function mergeStates(local, remote) {
+  const localNewer = (local.updatedAt || "") >= (remote.updatedAt || "");
+  const w = localNewer ? local : remote, l = localNewer ? remote : local;
+  return {
+    players: mergeById(w.players || [], l.players || []),
+    decks:   mergeById(w.decks   || [], l.decks   || []),
+    games:   mergeById(w.games   || [], l.games   || []),
+    settings: w.settings || l.settings,
+  };
+}
+
+/* pull → MERGE (never drops the other device's games) → push the union back */
 async function syncNow() {
   if (!SYNC.isConfigured()) return;
   syncing = true; updateSyncBadge();
   try {
     const remote = await SYNC.pull();
-    const local = S.getState();
-    if (remote && (remote.updatedAt || "") > (local.updatedAt || "")) {
-      S.replaceAll(remote); MIN_GAMES = S.settings().minGames ?? MIN_GAMES; switchTab("dash");
-    } else if ((local.updatedAt || "") > (remote?.updatedAt || "")) {
-      await SYNC.push(S.exportJson());
+    let contributed = dirty;
+    if (remote) {
+      const remoteIds = new Set((remote.games || []).map(g => g.id));
+      const beforeIds = allGames().map(g => g.id).sort().join();
+      S.replaceAll(mergeStates(S.getState(), remote));
+      MIN_GAMES = S.settings().minGames ?? MIN_GAMES;
+      const afterIds = allGames().map(g => g.id).sort().join();
+      if (beforeIds !== afterIds) switchTab(lastTab);                 // re-render only if the game set changed
+      contributed = contributed || allGames().some(g => !remoteIds.has(g.id));
     }
+    if (contributed || !remote) await SYNC.push(S.exportJson());      // push union back (skip if nothing new → no ping-pong)
     dirty = false;
   } catch (e) { toast(e.message); }
   finally { syncing = false; updateSyncBadge(); }
@@ -620,6 +644,15 @@ document.querySelector("nav.tabbar").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) switchTab(b.dataset.tab);
 });
 $("#sync-btn").addEventListener("click", () => { renderSettings(); showView("view-settings"); });
+
+/* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock,
+   so the debounced push otherwise never fires), and pull+merge when it returns to foreground. */
+document.addEventListener("visibilitychange", () => {
+  if (!SYNC.isConfigured()) return;
+  if (document.hidden) { if (dirty) pushNow(); }
+  else syncNow();
+});
+window.addEventListener("pagehide", () => { if (SYNC.isConfigured() && dirty) pushNow(); });
 
 /* ---------- boot ---------- */
 (async function init() {
