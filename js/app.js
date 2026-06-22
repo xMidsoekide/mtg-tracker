@@ -7,7 +7,9 @@ import * as SYNC from "./sync.js";
 const $ = (sel, root = document) => root.querySelector(sel);
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;" }[c]));
 const pct = x => x == null ? "–" : Math.round(x * 100) + "%";
-const signed = x => x == null ? "–" : (x >= 0 ? "+" : "") + Math.round(x * 100) + "%";
+/* finish rating on a 0–10 scale: avgNorm 0..1 -> "0.0".."10.0" (5.0 = mid-table average) */
+const rate = norm => norm == null ? "–" : (norm * 10).toFixed(1);
+const rateVs = vsAvg => vsAvg == null ? "–" : rate(vsAvg + 0.5);   // from centred finishVsAvg
 const shortName = c => (c || "").split(" + ")[0];   // full commander name; drop only the partner half
 const euDate = iso => { const p = String(iso).split("-"); return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso; };
 
@@ -28,16 +30,26 @@ const ciGrad = (ci, kind = "conic") => {
   const stops = ci.map((c, i) => `${CI_COLOR[c]} ${(i * step).toFixed(1)}${u} ${((i + 1) * step).toFixed(1)}${u}`).join(",");
   return kind === "linear" ? `linear-gradient(90deg,${stops})` : `conic-gradient(from 0deg,${stops})`;
 };
-/* wrap an already-built art <img> in a CI ring; returns the bare art when there's no art or no CI */
-const frameArt = (artHtml, ci, sm = false) => {
+/* wrap an already-built art <img> in a CI ring; returns the bare art when there's no art or no CI.
+   `extra` adds a frame modifier class ("field" for form-field-height art). */
+const frameArt = (artHtml, ci, extra = "") => {
   const g = artHtml && ciGrad(ci);
-  return g ? `<span class="ci-frame${sm ? " sm" : ""}" style="background:${g}">${artHtml}</span>` : (artHtml || "");
+  return g ? `<span class="ci-frame${extra ? " " + extra : ""}" style="background:${g}">${artHtml}</span>` : (artHtml || "");
 };
-const frameWide = (artHtml, ci, variant) => {   // variant: "banner" | "rec"
+const frameWide = (artHtml, ci, variant) => {   // variant: "banner"
   const g = artHtml && ciGrad(ci, "linear");
   return g ? `<span class="ci-frame ${variant}" style="background:${g}">${artHtml}</span>` : (artHtml || "");
 };
-const artCI = (d, cls = "art", pos) => frameArt(artImg(d?.art, cls, pos), deckCI(d), /art-sm/.test(cls));
+const artCI = (d, cls = "art", pos) => frameArt(artImg(d?.art, cls, pos), deckCI(d), /\bfield\b/.test(cls) ? "field" : "");
+/* big square commander art for the left of a participant / rival row (fixed width via CSS). Always
+   renders a box — placeholder when there's no art — wrapped in a CI ring when known. A partner /
+   background deck (art2) shows two stacked squares rather than one stretched image. */
+const rowArt = (art, ci, art2 = null) => {
+  const cell = a => a ? `<img class="rowfill" src="${esc(a)}" alt="" loading="lazy" />` : `<span class="rowfill ph"></span>`;
+  const inner = art2 ? `${cell(art)}${cell(art2)}` : cell(art);
+  const g = ciGrad(ci);
+  return `<span class="ci-frame rowfill${g ? "" : " noring"}"${g ? ` style="background:${g}"` : ""}>${inner}</span>`;
+};
 const deckTitle = d => d.commander2 ? `${esc(d.commander)} <span style="color:var(--muted)">+</span> ${esc(d.commander2)}` : esc(d.commander);
 const CI_LABEL = { W:"White", U:"Blue", B:"Black", R:"Red", G:"Green", C:"Colourless" };
 /* full commander name for an opponent seat (handles partner pairs) */
@@ -59,6 +71,22 @@ const deckRows = (filter = 0) => S.myDecks().map(d => {
   if (filter) gs = gs.filter(g => g.seats.length === filter);
   return { ...d, ...M.aggregateDeck(gs) };
 });
+/* deck rows for any player (same shape as deckRows), derived from the decks they've actually
+   played — so the shared deck-list renderer works for a rival too. */
+const subjectDecks = pid => {
+  const map = {};
+  for (const g of allGames()) {
+    const s = M.seatOf(g, pid); if (!s) continue;
+    const key = s.deckId || s.commander; if (!key) continue;
+    if (!map[key]) {
+      const d = s.deckId ? S.deckById(s.deckId) : null;
+      map[key] = { id: s.deckId || null, commander: d?.commander || s.commander, commander2: d?.commander2 || s.commander2 || null,
+        art: d?.art || s.art || null, art2: d?.art2 || s.art2 || null, ci: d?.ci || s.ci || [], theme: d?.theme || "", artPos: d?.artPos ?? null, _gs: [] };
+    }
+    map[key]._gs.push(g);
+  }
+  return Object.values(map).map(({ _gs, ...d }) => ({ ...d, ...M.aggregateDeck(_gs, pid) }));
+};
 
 /* ---------- toast ---------- */
 let toastEl;
@@ -70,7 +98,7 @@ function toast(msg) {
 
 /* ---------- Overview hero visuals ---------- */
 const heroCol = v => v >= 0 ? "var(--good)" : "var(--bad)";
-const HERO_MAX = 0.25;   // gauge range ±25%, clamps beyond
+const HERO_MAX = 0.5;   // gauge spans the full finish scale: -0.5 (=0/10) .. 0 (=5/10) .. +0.5 (=10/10)
 
 function heroGauge(v, scale = 1) {
   const c = Math.max(-HERO_MAX, Math.min(HERO_MAX, v || 0));
@@ -86,39 +114,163 @@ function heroGauge(v, scale = 1) {
   </svg>`;
 }
 
-/* points = [{date, v}]. The chip overlay (interactivity) is wired up in renderDash;
-   here we draw the line, a dot per game (each dot = one logged game / "change"), and
-   a transparent fat hit-circle per dot so taps/holds on mobile are easy to land. */
-function heroSpark(points, w = 150, h = 34) {
+/* points = [{date, v}]. Baseline at 0 (= mid-table, an average finish): line + area are green when
+   you're finishing above average, red below, split exactly at 0 via SVG clips. The SVG is stretched
+   horizontally (preserveAspectRatio="none"), so two things that must stay crisp live as HTML
+   overlays instead: the round dots (one per game, also the tap/hold targets) and the dotted zero
+   baseline (an SVG dash pattern would smear under the stretch). Interactivity wired in renderDash. */
+let sparkSeq = 0;
+function heroSpark(points, w = 150, h = 40) {
   if (points.length < 2) return "";
   const data = points.map(p => p.v);
-  const min = Math.min(...data), max = Math.max(...data), span = (max - min) || 1;
-  const X = i => i / (data.length - 1) * w, Y = v => h - ((v - min) / span) * (h - 6) - 3;
+  const lo = Math.min(0, ...data), hi = Math.max(0, ...data), span = (hi - lo) || 1;
+  const X = i => i / (data.length - 1) * w, Y = v => h - ((v - lo) / span) * (h - 6) - 3;
   const line = data.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-  const end = data.at(-1);
+  const tY = Y(0).toFixed(1);
+  const id = "sp" + (++sparkSeq);
   const dots = points.map((p, i) =>
-    `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.2" fill="${heroCol(p.v)}" opacity=".85"/>`).join("");
-  const hits = points.map((p, i) =>
-    `<circle class="spark-hit" cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="10" fill="transparent"
-       data-i="${i}" data-date="${p.date}" data-val="${p.v}"/>`).join("");
-  return `<div class="spark-wrap"><div class="spark-chip"></div>
+    `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
+       style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
+       data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
+  return `<div class="spark-wrap" style="height:${h}px">
+    <div class="spark-chip"></div>
     <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
-      <defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0" stop-color="${heroCol(end)}" stop-opacity=".32"/><stop offset="1" stop-color="${heroCol(end)}" stop-opacity="0"/></linearGradient></defs>
-      <polygon points="0,${h} ${line} ${w},${h}" fill="url(#hg)"/>
-      <polyline points="${line}" fill="none" stroke="${heroCol(end)}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-      ${dots}<circle cx="${w}" cy="${Y(end).toFixed(1)}" r="3.5" fill="${heroCol(end)}"/>${hits}</svg></div>`;
+      <defs>
+        <clipPath id="up${id}"><rect x="0" y="0" width="${w}" height="${tY}"/></clipPath>
+        <clipPath id="dn${id}"><rect x="0" y="${tY}" width="${w}" height="${(h - tY).toFixed(1)}"/></clipPath>
+      </defs>
+      <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--good)" opacity=".2" clip-path="url(#up${id})"/>
+      <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--bad)"  opacity=".2" clip-path="url(#dn${id})"/>
+      <polyline points="${line}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#up${id})"/>
+      <polyline points="${line}" fill="none" stroke="var(--bad)"  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#dn${id})"/>
+    </svg>
+    <div class="spark-zero" style="top:${(Y(0) / h * 100).toFixed(2)}%"></div>${dots}</div>`;
 }
 
-/* cumulative WR-vs-expected after each game, in date order; keeps the date for the chip */
-function heroSeries(games) {
-  const sorted = games.slice().sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  return sorted.map((_, i) => ({ date: sorted[i].date, v: M.pilotOverall(sorted.slice(0, i + 1)).wrVsExpected }));
+/* Sparkline = recent *form*, not the all-time average: each point is WR-vs-expected over the
+   trailing FORM_WINDOW games. A cumulative average flattens (each game moves it ~1/n), so it
+   eventually carries no signal; a rolling window stays responsive and shows hot/cold streaks.
+   With fewer than FORM_WINDOW games it's just the cumulative line. The headline number/gauge
+   stay all-time. */
+const FORM_WINDOW = 6;
+function heroSeries(games, pid = "me") {
+  const sorted = games.filter(g => M.seatOf(g, pid)?.placement != null)   // only games with a recorded finish
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+  return sorted.map((_, i) => ({
+    date: sorted[i].date,
+    v: M.pilotOverall(sorted.slice(Math.max(0, i - FORM_WINDOW + 1), i + 1), pid).finishVsAvg,
+  }));
 }
-function heroTrend(series) {
-  if (series.length < 4) return "";
-  const d = series.at(-1).v - series.at(-4).v;
-  return d > 0.005 ? "↗ Improving" : d < -0.005 ? "↘ Slipping" : "→ Steady";
+/* Recent-form label from the latest rolling finish rating. Thresholds are in finishVsAvg (= rating
+   on a 0–10 scale, centred so 0 = 5.0). Tight 1.5-point outer bands so 👑/💀 mean "almost always
+   top / almost always last": 👑 ≥ 8.5 · 🗡️ 6.0–8.5 · ➖ 4.0–6.0 · 🛡️ 1.5–4.0 · 💀 < 1.5. */
+const FORM_TIERS = [
+  { min: 0.35,      label: "Ruling the table", cls: "pos", icon: "👑" },
+  { min: 0.10,      label: "Ahead",            cls: "pos", icon: "🗡️" },
+  { min: -0.10,     label: "Even",             cls: "",    icon: "➖" },
+  { min: -0.35,     label: "Behind",           cls: "neg", icon: "🛡️" },
+  { min: -Infinity, label: "First one out",    cls: "neg", icon: "💀" },
+];
+const tierFor = v => v == null ? null : (FORM_TIERS.find(t => v >= t.min) || null);
+function heroForm(series) {
+  if (series.length < 3) return null;   // too few games for a meaningful form read
+  return tierFor(series.at(-1).v);
+}
+
+/* Shared hero tile (gauge + finish rating + form tier + sparkline) for any subject — the dashboard
+   uses it for "me", the rival page for an opponent. Returns the markup + the series for wireSpark. */
+function heroBlock(games, pid, label) {
+  const a = M.pilotOverall(games, pid);
+  const series = heroSeries(games, pid);
+  const wrCls = (a.finishVsAvg ?? 0) >= 0 ? "pos" : "neg";
+  const body = a.scored === 0
+    ? `<div class="value" style="color:var(--muted)">–</div><div class="sub">${a.games === 0 ? "Log a game to get started" : "No finishing order recorded yet"}</div>`
+    : `<div style="display:flex;align-items:center;gap:13px;margin-top:8px">
+        <div style="flex:0 0 auto">${heroGauge(a.finishVsAvg, 0.66)}</div>
+        <div style="flex:1;min-width:0">
+          <div class="value ${wrCls}" style="font-size:32px">${rate(a.avgNorm)}</div>
+          <div class="sub" style="margin:3px 0 ${series.length > 1 ? "9px" : "0"}">
+            ${(() => { const f = heroForm(series); return f ? `<div class="${f.cls}" style="font-weight:600">${f.icon} ${f.label}</div>` : ""; })()}
+            <div>${a.scored} game${a.scored === 1 ? "" : "s"} · Won ${pct(a.actualWR)}</div>
+          </div>
+          ${heroSpark(series)}
+        </div>
+      </div>`;
+  return { series, html: `<div class="tiles"><div class="tile hero"><div class="label">${label}</div>${body}</div></div>` };
+}
+
+/* wire the tap/hold date chip on a freshly-rendered sparkline inside `view` */
+function wireSpark(view, series) {
+  const wrap = view.querySelector(".spark-wrap");
+  if (!wrap) return;
+  const chip = wrap.querySelector(".spark-chip"), n = series.length;
+  const show = el => {
+    chip.textContent = `${euDate(el.dataset.date)} · ${rateVs(+el.dataset.val)}`;
+    chip.style.left = (n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50) + "%";
+    chip.classList.add("show");
+  };
+  const hide = () => chip.classList.remove("show");
+  wrap.querySelectorAll(".spark-dot").forEach(c => {
+    c.addEventListener("pointerenter", () => show(c));
+    c.addEventListener("pointerdown", () => show(c));
+  });
+  wrap.addEventListener("pointerup", hide);
+  wrap.addEventListener("pointerleave", hide);
+  wrap.addEventListener("pointercancel", hide);
+}
+
+/* Shared ranked deck list (the "Finish rating" leaderboard). `clickable` opens the deck detail
+   (only meaningful for my own decks). */
+function deckLbHtml(rows, clickable = true) {
+  return rows.slice().sort((x, y) => {
+    if (!x.games) return 1; if (!y.games) return -1;
+    return (y.finishVsAvg ?? -9) - (x.finishVsAvg ?? -9);
+  }).map((d, i) => {
+    const nav = clickable && d.id ? ` data-deck="${d.id}"` : ` style="cursor:default"`;
+    const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artCI(d, "art", artPosOf(d))}
+      <div style="min-width:0"><div class="name">${esc(shortName(d.commander))}</div>
+        <div class="theme" style="display:flex;align-items:center;gap:6px;min-width:0"><span class="theme-txt">${esc(d.theme || "")}</span></div></div></div>`;
+    if (!d.games) return `<div class="lb-row low"${nav}><div class="rank">–</div>${idCell}<div class="metric" style="color:var(--muted)">—<small>Not played</small></div></div>`;
+    const low = d.games < MIN_GAMES;
+    const cls = d.finishVsAvg >= 0 ? "pos" : "neg";
+    return `<div class="lb-row ${low ? "low" : ""}"${nav}>
+      <div class="rank">${i + 1}</div>
+      ${idCell.replace('class="name">', `class="name">${low ? '<span class="flag" title="few games — still noisy">⚠</span> ' : ""}`)}
+      <div class="metric ${cls}">${rate(d.avgNorm)}<small>${d.games} game${d.games === 1 ? "" : "s"}</small></div>
+    </div>`;
+  }).join("");
+}
+
+/* "Recently played" — a subject's last 3 distinct decks (resolvable to a stored deck). */
+function recentBlock(games, pid, clickable) {
+  const recent = [];
+  for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
+    const id = M.seatOf(g, pid)?.deckId;
+    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date });
+    if (recent.length === 3) break;
+  }
+  if (!recent.length) return "";
+  const cards = recent.map(r => {
+    const d = S.deckById(r.id);
+    const ag = M.aggregateDeck(allGames().filter(g => M.seatOf(g, pid)?.deckId === r.id), pid);
+    const cls = (ag.finishVsAvg ?? 0) >= 0 ? "pos" : "neg";
+    const nav = clickable ? ` data-deck="${r.id}"` : ` style="cursor:default"`;
+    return `<div class="leader"${nav}>
+      ${d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : ""}
+      <div class="lt">${relDate(r.date)}</div>
+      <div class="ln">${esc(shortName(d.commander))}</div><div class="lv ${cls}">${rate(ag.avgNorm)}</div></div>`;
+  }).join("");
+  return `<div class="section-head"><h2>Recently played</h2></div><div class="recent-grid">${cards}</div>`;
+}
+
+/* The whole overview (hero + recently played + ranked deck list) for any subject. The dashboard is
+   this for "me"; a rival page is the same thing for an opponent. Returns markup + series. */
+function overviewBlock(games, pid, label, clickable) {
+  const hero = heroBlock(games, pid, label);
+  const decks = pid === "me" ? deckRows(0) : subjectDecks(pid);
+  return { series: hero.series, html: hero.html + recentBlock(games, pid, clickable) + `
+    <div class="section-head"><h2>Decks · Finish rating</h2></div>
+    <div class="lb">${deckLbHtml(decks, clickable)}</div>` };
 }
 
 /* ---------- Overview ---------- */
@@ -132,109 +284,28 @@ const relDate = iso => {                       // "Today" / "3d ago" / "2 weeks 
 };
 
 function renderDash() {
-  const games = allGames();
-  const a = M.pilotOverall(games);
-  const wrCls = (a.wrVsExpected ?? 0) >= 0 ? "pos" : "neg";
-
-  const v = a.wrVsExpected;
-  const series = heroSeries(games);
-  const heroBody = a.games === 0
-    ? `<div class="value" style="color:var(--muted)">–</div><div class="sub">Log a game to get started</div>`
-    : `<div style="display:flex;align-items:center;gap:13px;margin-top:8px">
-        <div style="flex:0 0 auto">${heroGauge(v, 0.66)}</div>
-        <div style="flex:1;min-width:0">
-          <div class="value ${wrCls}" style="font-size:32px">${signed(v)}</div>
-          <div class="sub" style="margin:3px 0 ${series.length > 1 ? "9px" : "0"}">
-            ${heroTrend(series) ? `<div>${heroTrend(series)}</div>` : ""}
-            <div>${a.games} game${a.games === 1 ? "" : "s"} · Won ${pct(a.actualWR)}</div>
-          </div>
-          ${heroSpark(series)}
-        </div>
-      </div>`;
-  const tiles = `
-    <div class="tiles">
-      <div class="tile hero">
-        <div class="label">My win rate vs expected</div>
-        ${heroBody}
-      </div>
-    </div>`;
-
-  // Recently played — last 3 distinct decks of mine, for a quick "what do I bring tonight"
-  const recent = [];
-  for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
-    const id = M.mySeat(g)?.deckId;
-    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date });
-    if (recent.length === 3) break;
-  }
-  const recentCards = recent.map(r => {
-    const d = S.deckById(r.id); const ag = M.aggregateDeck(myGamesForDeck(r.id));
-    const cls = (ag.wrVsExpected ?? 0) >= 0 ? "pos" : "neg";
-    return `<div class="leader" data-deck="${r.id}">
-      ${frameWide(d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : "", deckCI(d), "rec")}
-      <div class="lt">${relDate(r.date)}</div>
-      <div class="ln">${esc(shortName(d.commander))}</div><div class="lv ${cls}">${signed(ag.wrVsExpected)}</div></div>`;
-  }).join("");
-  const recentBlock = recent.length
-    ? `<div class="section-head"><h2>Recently played</h2></div><div class="recent-grid">${recentCards}</div>` : "";
-
-  const rows = deckRows(0).sort((x, y) => {
-    if (!x.games) return 1; if (!y.games) return -1;
-    return (y.wrVsExpected ?? -9) - (x.wrVsExpected ?? -9);
-  }).map((d, i) => {
-    const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artCI(d, "art", artPosOf(d))}
-      <div style="min-width:0"><div class="name">${esc(shortName(d.commander))}</div>
-        <div class="theme" style="display:flex;align-items:center;gap:6px;min-width:0"><span class="theme-txt">${esc(d.theme)}</span></div></div></div>`;
-    if (!d.games) return `<div class="lb-row low" data-deck="${d.id}"><div class="rank">–</div>
-      ${idCell}<div class="metric" style="color:var(--muted)">—<small>Not played</small></div></div>`;
-    const low = d.games < MIN_GAMES;
-    const cls = d.wrVsExpected >= 0 ? "pos" : "neg";
-    return `<div class="lb-row ${low ? "low" : ""}" data-deck="${d.id}">
-      <div class="rank">${i + 1}</div>
-      ${idCell.replace('class="name">', `class="name">${low ? '<span class="flag" title="few games — still noisy">⚠</span> ' : ""}`)}
-      <div class="metric ${cls}">${signed(d.wrVsExpected)}<small>${d.games} game${d.games === 1 ? "" : "s"}</small></div>
-    </div>`;
-  }).join("");
-
-  $("#view-dash").innerHTML = tiles + recentBlock + `
-    <div class="section-head"><h2>Decks · WR vs expected</h2></div>
-    <div class="lb">${rows}</div>`;
-
+  const ov = overviewBlock(allGames(), "me", "My finish rating", true);
+  $("#view-dash").innerHTML = ov.html;
   $("#view-dash").querySelectorAll("[data-deck]").forEach(r =>
     r.addEventListener("click", () => openDeck(r.dataset.deck)));
-
-  // sparkline: tap/hold (mobile) or hover (desktop) a point -> chip shows that game's date + WR
-  const wrap = $("#view-dash .spark-wrap");
-  if (wrap) {
-    const chip = $(".spark-chip", wrap), n = series.length;
-    const show = el => {
-      chip.textContent = `${euDate(el.dataset.date)} · ${signed(+el.dataset.val)}`;
-      chip.style.left = (n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50) + "%";
-      chip.classList.add("show");
-    };
-    const hide = () => chip.classList.remove("show");
-    wrap.querySelectorAll(".spark-hit").forEach(c => {
-      c.addEventListener("pointerenter", () => show(c));
-      c.addEventListener("pointerdown", () => show(c));
-    });
-    wrap.addEventListener("pointerup", hide);
-    wrap.addEventListener("pointerleave", hide);
-    wrap.addEventListener("pointercancel", hide);
-  }
+  wireSpark($("#view-dash"), ov.series);
 }
 
 /* ---------- Compare ---------- */
 /* avgNorm = pod-size-fair finish (1st=100%, last=0%); raw avg placement is intentionally
    omitted because it ignores pod size (3rd of 4 ≠ 3rd of 5). */
 const METRICS = [
-  { key:"wrVsExpected", label:"WR vs expected", bar:"diverge", fmt:d=>signed(d.wrVsExpected) },
-  { key:"actualWR",     label:"Win rate",       bar:"abs",     fmt:d=>pct(d.actualWR) },
-  { key:"avgNorm",      label:"Average finish", bar:"abs",     fmt:d=>pct(d.avgNorm) },
-  { key:"volatility",   label:"Swinginess",     bar:"relLow",  fmt:d=>d.volatility==null?"–":d.volatility.toFixed(2) },
-  { key:"games",        label:"Games played",   bar:"relHigh", neutral:true, fmt:d=>String(d.games) },
+  { key:"finishVsAvg", label:"Finish rating", bar:"diverge", fmt:d=>rate(d.avgNorm) },
+  { key:"actualWR",    label:"Win rate",            bar:"abs",     fmt:d=>pct(d.actualWR) },
+  { key:"volatility",  label:"Swinginess",          bar:"relLow",  fmt:d=>d.volatility==null?"–":d.volatility.toFixed(2) },
+  { key:"games",       label:"Games played",        bar:"relHigh", neutral:true, fmt:d=>String(d.games) },
 ];
 
-/* goodness 0..1 -> red→gold→green; keeps gold in the middle so it still reads MTG. */
-const goodnessColor = f => `hsl(${Math.round(f * 125)} 60% 46%)`;
+/* goodness 0..1 -> red→gold→green, gold in the middle so it still reads MTG. Anchored on the
+   same --bad/--warn/--good vars the diverge bars use, so greens match across the screen. */
+const goodnessColor = f => f <= 0.5
+  ? `color-mix(in srgb, var(--warn) ${(f * 200).toFixed(0)}%, var(--bad))`
+  : `color-mix(in srgb, var(--good) ${((f - 0.5) * 200).toFixed(0)}%, var(--warn))`;
 
 function metricSection(m) {
   let rows = deckRows(podFilter).filter(d => d.games && d[m.key] != null);
@@ -282,8 +353,8 @@ function renderLeaders() {
   const extreme = (key, dir) => played.filter(d => d[key] != null).reduce((b, x) => b == null || (x[key] - b[key]) * dir > 0 ? x : b, null);
   const card = (icon, label, d, fmt) => d ? `<div class="leader"><div class="lt">${icon} ${label}</div><div class="ln">${esc(shortName(d.commander))}</div><div class="lv">${fmt(d)}</div></div>` : "";
   const html = [
-    card("🏆","Best vs expected", extreme("wrVsExpected", +1), d => signed(d.wrVsExpected)),
-    card("🎯","Best finisher",    extreme("avgNorm", +1),      d => pct(d.avgNorm)),
+    card("🎯","Best finisher",    extreme("avgNorm", +1),      d => rate(d.avgNorm)),
+    card("🏆","Best win rate",    extreme("actualWR", +1),     d => pct(d.actualWR)),
     card("🔁","Most played",      extreme("games", +1),        d => `${d.games} games`),
     card("🛡","Steadiest",        extreme("volatility", -1),   d => d.volatility.toFixed(2)),
     card("🎲","Swingiest",        extreme("volatility", +1),   d => d.volatility.toFixed(2)),
@@ -291,7 +362,7 @@ function renderLeaders() {
   return `<div class="section-head"><h2>Leaders</h2></div><div class="leaders">${html}</div>`;
 }
 
-/* shared: list of diverging WR-vs-expected bars (items: {label, sub, value}) */
+/* shared: list of diverging finish-vs-average bars (items: {label, sub, value}) */
 function divergingList(items) {
   const maxAbs = Math.max(1e-9, ...items.map(i => Math.abs(i.value)));
   return items.map(i => {
@@ -299,7 +370,7 @@ function divergingList(items) {
     const side = i.value >= 0 ? `left:50%; width:${w}%; background:var(--good)` : `right:50%; width:${w}%; background:var(--bad)`;
     return `<div class="rank-row"><div class="rank-head">
       <span class="rk-name">${i.label}${i.sub ? ` <span style="color:var(--muted);font-size:12px;font-weight:500">${i.sub}</span>` : ""}</span>
-      <span class="rk-val ${i.value >= 0 ? "pos" : "neg"}">${signed(i.value)}</span></div>
+      <span class="rk-val ${i.value >= 0 ? "pos" : "neg"}">${rateVs(i.value)}</span></div>
       <div class="bar-track diverge"><span class="bar-axis"></span><span class="bar-fill" style="${side}"></span></div></div>`;
   }).join("");
 }
@@ -311,7 +382,7 @@ function renderSeatSection() {
   const maxSeat = Math.max(4, ...games.map(g => g.seats.length));
   const items = Array.from({ length: maxSeat }, (_, i) => ({ s: i + 1, ...(sb[i + 1] || { games: 0 }) }))
     .filter(s => s.games)
-    .map(s => ({ label: `Seat ${s.s}`, sub: `${s.games} games · ${s.avgPlace.toFixed(1)} avg`, value: s.wrVsExpected }));
+    .map(s => ({ label: `Seat ${s.s}`, sub: `${s.games} games · ${s.avgPlace.toFixed(1)} avg`, value: s.finishVsAvg }));
   if (!items.length) return "";
   return `<div class="section-head"><h2>By seat · turn order</h2></div><div class="cmp-metric"><div class="rank-list">${divergingList(items)}</div></div>`;
 }
@@ -323,17 +394,20 @@ function renderColorSection() {
     const a = M.aggregateDeck(gs);
     return { col, ...a };
   }).filter(x => x.games)
-    .sort((a, b) => (b.wrVsExpected ?? -9) - (a.wrVsExpected ?? -9))
-    .map(x => ({ label: `<span class="pips-ci"><span class="ci ${x.col}"></span></span> ${CI_LABEL[x.col]}`, sub: `${x.games} games`, value: x.wrVsExpected }));
+    .sort((a, b) => (b.finishVsAvg ?? -9) - (a.finishVsAvg ?? -9))
+    .map(x => ({ label: `<span class="pips-ci"><span class="ci ${x.col}"></span></span> ${CI_LABEL[x.col]}`, sub: `${x.games} games`, value: x.finishVsAvg }));
   if (items.length < 2) return "";
   return `<div class="section-head"><h2>By colour</h2></div><div class="cmp-metric"><div class="rank-list">${divergingList(items)}</div></div>`;
 }
 
 function renderCompare() {
+  const has3p = allGames().some(g => g.seats.length === 3);
+  if (podFilter === 3 && !has3p) podFilter = 0;   // 3P filter is gone if its last game was removed
   $("#view-compare").innerHTML = renderLeaders() + `
     <div class="section-head"><h2>Compare decks</h2>
       <div class="seg" id="podseg">
         <button data-pod="0" class="${podFilter === 0 ? "on" : ""}">All</button>
+        ${has3p ? `<button data-pod="3" class="${podFilter === 3 ? "on" : ""}">3P</button>` : ""}
         <button data-pod="4" class="${podFilter === 4 ? "on" : ""}">4P</button>
         <button data-pod="5" class="${podFilter === 5 ? "on" : ""}">5P</button>
       </div></div>
@@ -374,7 +448,7 @@ function openDeck(deckId) {
       <div class="note">vs ${opp}</div>${g.notes ? `<div class="note">📝 ${esc(g.notes)}</div>` : ""}</div>`;
   }).join("");
 
-  const wrCls = (a.wrVsExpected ?? 0) >= 0 ? "pos" : "neg";
+  const wrCls = (a.finishVsAvg ?? 0) >= 0 ? "pos" : "neg";
   $("#view-deck").innerHTML = `
     <button class="back" id="deck-back">‹ Back</button>
     ${frameWide(d.art ? `<img class="deck-hero-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" />` : "", deckCI(d), "banner")}
@@ -382,9 +456,9 @@ function openDeck(deckId) {
       <h2 style="color:var(--text);font-size:18px;text-transform:none;letter-spacing:0">${deckTitle(d)}</h2>
       <div class="theme" style="color:var(--muted);font-size:13px;margin-top:3px">${esc(d.theme)}</div></div></div>
     <div class="tiles" style="margin-top:12px">
-      <div class="tile hero"><div class="label">WR vs expected</div><div class="value ${wrCls}">${signed(a.wrVsExpected)}</div>
+      <div class="tile hero"><div class="label">Finish rating</div><div class="value ${wrCls}">${rate(a.avgNorm)}</div>
         <div class="sub">${a.games} games · won ${pct(a.actualWR)}</div></div>
-      <div class="tile"><div class="label">Average finish</div><div class="value">${pct(a.avgNorm)}</div></div>
+      <div class="tile"><div class="label">Avg place</div><div class="value">${a.avgPlace == null ? "–" : a.avgPlace.toFixed(1)}</div></div>
       <div class="tile"><div class="label">Swinginess</div><div class="value">${a.volatility == null ? "–" : a.volatility.toFixed(2)}</div>${a.volatility == null ? '<div class="sub">Need 2+ games</div>' : ""}</div>
     </div>
     <div class="chart-card"><h3>Placement distribution</h3><div class="dist">${bars}</div></div>
@@ -401,7 +475,7 @@ function topCommander(games, playerId) {
     if (s.playerId !== playerId) continue;
     const key = s.deckId || s.commander; if (!key) continue;
     const d = s.deckId ? S.deckById(s.deckId) : null;
-    (tally[key] ??= { name: d?.commander || s.commander, art: d?.art || s.art || null, ci: d?.ci || s.ci || [], n: 0 }).n++;
+    (tally[key] ??= { name: d?.commander || s.commander, art: d?.art || s.art || null, art2: d?.art2 || s.art2 || null, ci: d?.ci || s.ci || [], n: 0 }).n++;
   }
   const top = Object.values(tally).sort((a, b) => b.n - a.n)[0];
   return top || null;
@@ -420,12 +494,14 @@ function renderRivals() {
     const seg = (n, color) => n ? `<span style="width:${n / tot * 100}%;background:${color}"></span>` : "";
     const leg = (color, label, n) => n ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
-    return `<div class="h2h"><div class="top" style="gap:10px;align-items:center">
-        ${frameArt(artImg(top?.art), top?.ci)}
-        <div style="flex:1;min-width:0"><span class="who">${esc(name)}</span>${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}</div>
-        <span class="rec">${h.together} games</span></div>
-      <div class="wld">${seg(w, "var(--good)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
-      <div class="legend">${leg("var(--good)", "Beat them", w)}${leg("var(--bad)", "Lost to them", l)}${leg("var(--surface-2)", "Not recorded", u)}</div></div>`;
+    return `<div class="h2h" data-rival="${id}">
+      <div class="h2h-art">${rowArt(top?.art, top?.ci, top?.art2)}</div>
+      <div class="h2h-body">
+        <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
+        ${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}
+        <div class="wld">${seg(w, "var(--good)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
+        <div class="legend">${leg("var(--good)", "Beat them", w)}${leg("var(--bad)", "Lost to them", l)}${leg("var(--surface-2)", "Not recorded", u)}</div>
+      </div></div>`;
   }).join("");
 
   // bogey decks — opponent decks with at least 2 *recorded* finishes vs me, worst first
@@ -447,6 +523,20 @@ function renderRivals() {
     ${cards || '<div class="empty">No games with named players yet.<br>Tag friends when you log a game.</div>'}
     <div class="section-head"><h2>Nemesis decks</h2></div>
     ${bogRows ? `<div class="lb">${bogRows}</div>` : '<div class="empty">Play a few games with finishing order to see which decks beat you.</div>'}`;
+
+  $("#view-rivals").querySelectorAll(".h2h[data-rival]").forEach(c =>
+    c.addEventListener("click", () => openRival(c.dataset.rival)));
+}
+
+/* ---------- Rival overview (one opponent) — the same overview as the dashboard, for them ---------- */
+function openRival(pid) {
+  const name = S.playerById(pid)?.name || pid;
+  const theirGames = allGames().filter(g => M.seatOf(g, pid));
+  const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating`, false);
+  $("#view-rival").innerHTML = `<button class="back" id="rival-back">‹ Rivals</button>${ov.html}`;
+  $("#rival-back").addEventListener("click", () => switchTab("rivals"));
+  wireSpark($("#view-rival"), ov.series);
+  showView("view-rival");
 }
 
 /* ---------- Log (fast entry) ---------- */
@@ -494,6 +584,7 @@ function renderLog() {
 
 function renderQuickLog() {
   if (!draft) draft = freshDraft();
+  const myDeck = S.deckById(draft.deckId);
   const deckOpts = S.myDecks().map(d => `<option value="${d.id}" ${d.id === draft.deckId ? "selected" : ""}>${esc(d.commander)}</option>`).join("");
   const roster = S.players().filter(p => !p.self);
   const chips = (cur, n, attr) => Array.from({ length: n }, (_, i) =>
@@ -502,15 +593,18 @@ function renderQuickLog() {
     ...Array.from({ length: draft.podSize }, (_, i) => `<option value="${i + 1}" ${cur === i + 1 ? "selected" : ""}>${ord(i + 1)}</option>`)].join("")}</select>`;
 
   const oppBlocks = draft.opponents.map((o, i) => `
-    <div class="opp-block" data-i="${i}">
-      <div class="opp-row">
-        <select class="opp-player">
-          <option value="">Unknown</option>
-          ${roster.map(p => `<option value="${p.id}" ${p.id === o.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
-        </select>
-        ${placeSel(o.placement)}
+    <div class="opp-block part-row" data-i="${i}">
+      <div class="part-art">${rowArt(o.art, o.ci, o.art2)}</div>
+      <div class="part-body">
+        <div class="opp-row">
+          <select class="opp-player">
+            <option value="">Unknown</option>
+            ${roster.map(p => `<option value="${p.id}" ${p.id === o.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}
+          </select>
+          ${placeSel(o.placement)}
+        </div>
+        <div class="opp-picker" data-i="${i}"></div>
       </div>
-      <div class="opp-picker" data-i="${i}"></div>
     </div>`).join("");
 
   $("#view-log").innerHTML = `
@@ -518,8 +612,13 @@ function renderQuickLog() {
     <p class="hint" style="margin-top:0">Set up the pod now, fill in finishing order at the end.</p>
     <div class="section-head"><h2>Or quick-log a finished game</h2></div>
     <div class="field"><label>Date</label><input id="log-date" type="date" value="${draft.date}" /></div>
-    <div class="field"><label>My deck</label><select id="log-deck">${deckOpts}</select></div>
+    <div class="field"><label>My deck</label>
+      <div class="part-row me">
+        <div class="part-art" id="my-art">${rowArt(myDeck?.art, myDeck?.ci, myDeck?.art2)}</div>
+        <div class="part-body"><select id="log-deck" style="width:100%">${deckOpts}</select></div>
+      </div></div>
     <div class="field"><label>Pod size</label><div class="choices" id="pod-choice">
+      <div class="chip ${draft.podSize === 3 ? "on" : ""}" data-pod="3">3</div>
       <div class="chip ${draft.podSize === 4 ? "on" : ""}" data-pod="4">4</div>
       <div class="chip ${draft.podSize === 5 ? "on" : ""}" data-pod="5">5</div></div></div>
     <button class="btn-ghost" id="repeat-pod">↻ Repeat last pod</button>
@@ -534,6 +633,11 @@ function renderQuickLog() {
 
   const v = $("#view-log");
   v.querySelector("#start-live").addEventListener("click", startLive);
+  v.querySelector("#log-deck").addEventListener("change", e => {
+    draft.deckId = e.target.value;
+    const d = S.deckById(draft.deckId);
+    v.querySelector("#my-art").innerHTML = rowArt(d?.art, d?.ci || [], d?.art2);
+  });
   v.querySelector("#pod-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (c) setPodSize(+c.dataset.pod); });
   v.querySelector("#repeat-pod").addEventListener("click", repeatLastPod);
   v.querySelector("#seat-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; draft.mySeat = +c.dataset.seat; v.querySelectorAll("#seat-choice .chip").forEach(x => x.classList.toggle("on", x === c)); });
@@ -541,8 +645,11 @@ function renderQuickLog() {
   v.querySelectorAll(".opp-place").forEach((sel, i) => sel.addEventListener("change", () => draft.opponents[i].placement = sel.value ? +sel.value : null));
   v.querySelectorAll(".opp-picker").forEach(mount => {
     const i = +mount.dataset.i;
-    makePicker(mount, draft.opponents[i], upd => Object.assign(draft.opponents[i],
-      { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second }), { pips: false });
+    makePicker(mount, draft.opponents[i], upd => {
+      Object.assign(draft.opponents[i], { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second });
+      const box = mount.closest(".part-row")?.querySelector(".part-art");   // refresh the big left art live
+      if (box) box.innerHTML = rowArt(upd.art, upd.ci, upd.art2);
+    }, { pips: false, art: false });
   });
   v.querySelector("#save-game").addEventListener("click", saveGame);
 }
@@ -709,16 +816,13 @@ document.querySelector("nav.tabbar").addEventListener("click", e => {
 });
 $("#sync-btn").addEventListener("click", () => { renderSettings(); showView("view-settings"); });
 
-/* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock,
-   so the debounced push otherwise never fires), and pull+merge when it returns to foreground. */
+/* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock, so the
+   debounced push otherwise never fires). We deliberately do NOT auto-pull on focus or on a timer —
+   remote data is only pulled on a real page refresh (see init), so the view never reloads under you. */
 document.addEventListener("visibilitychange", () => {
-  if (!SYNC.isConfigured()) return;
-  if (document.hidden) { if (dirty) pushNow(); }
-  else syncNow();
+  if (document.hidden && SYNC.isConfigured() && dirty) pushNow();
 });
 window.addEventListener("pagehide", () => { if (SYNC.isConfigured() && dirty) pushNow(); });
-// auto-pull while the tab is open, so a device left visible (e.g. the laptop) keeps catching up
-setInterval(() => { if (SYNC.isConfigured() && !document.hidden && !syncing) syncNow(); }, 20000);
 
 /* ---------- boot ---------- */
 (async function init() {
@@ -824,23 +928,26 @@ function renderLiveGame(g) {
 
   const rows = g.participants.map((p, i) => {
     const isMe = p.playerId === "me";
-    const lead = setup ? `${i + 1}.` : `<strong>${ord(i + 1)}</strong>`;
+    const lead = setup ? `${i + 1}.` : ord(i + 1);
     const myDeck = isMe ? S.deckById(p.deckId) : null;
+    const art = isMe ? myDeck?.art : p.art;
+    const art2 = isMe ? (myDeck?.art2 || null) : (p.art2 || null);
+    const ci = isMe ? (myDeck?.ci || []) : (p.ci || []);
     let cmdField;
     if (isMe) {
       cmdField = setup
-        ? `<div style="display:flex;align-items:center;gap:8px"><select class="part-deck" style="flex:1">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>${artCI(myDeck, "art art-sm")}</div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(myDeck?.commander || "—")}</span>${artCI(myDeck, "art art-sm")}</div>`;
+        ? `<select class="part-deck" style="width:100%">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>`
+        : `<div class="part-static">${esc(myDeck?.commander || "—")}</div>`;
     } else {
       cmdField = setup
         ? `<div class="part-picker" data-uid="${p.uid}"></div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</span>${frameArt(artImg(p.art, "art art-sm"), p.ci, true)}</div>`;
+        : `<div class="part-static">${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</div>`;
     }
-    // keep the drag handle (and a spacer where there's no ✕) in a fixed column so they line up
     const rm = !setup ? "" : (isMe ? `<span class="part-rm-spacer"></span>` : `<button class="part-rm" data-rm="${p.uid}">✕</button>`);
+    const name = `<div class="part-name"><span class="lead">${lead}</span>${esc(p.name)}${setup ? "" : ` <span class="sub">· Turn ${p.turn}</span>`}</div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-uid="${p.uid}">
-      <span class="part-lead">${lead}</span>
-      <div class="part-body"><div class="part-name">${esc(p.name)}${setup ? "" : ` <span class="sub">· Turn ${p.turn}</span>`}</div>${cmdField}</div>
+      <div class="part-art">${rowArt(art, ci, art2)}</div>
+      <div class="part-body">${name}${cmdField}</div>
       <span class="part-drag" title="Drag to reorder">⠿</span>${rm}</div>`;
   }).join("");
 
@@ -882,7 +989,9 @@ function bindLive() {
       const g = S.getActive(); const pp = g.participants.find(x => x.uid === uid); if (!pp) return;
       Object.assign(pp, { commander: upd.commander, commander2: upd.commander2, art: upd.art, art2: upd.art2, ci: upd.ci, second: upd.second });
       saveActive(g);
-    }, { pips: false });
+      const box = mount.closest(".part-row")?.querySelector(".part-art");   // refresh the big left art live
+      if (box) box.innerHTML = rowArt(upd.art, upd.ci, upd.art2);
+    }, { pips: false, art: false });
   });
   v.querySelectorAll("#live-notes, #live-date").forEach(el => el.addEventListener("change", liveSyncDom));
   v.querySelector(".part-deck")?.addEventListener("change", () => { liveSyncDom(); renderLog(); });  // refresh my art
@@ -934,11 +1043,16 @@ function renderEdit() {
   const seatRows = g.seats.map((s, i) => {
     const isMe = s.playerId === "me";
     const myDeck = isMe ? S.deckById(s.deckId) : null;
+    const oppDeck = !isMe && s.deckId ? S.deckById(s.deckId) : null;
+    const art = isMe ? myDeck?.art : (s.art || oppDeck?.art);
+    const art2 = isMe ? (myDeck?.art2 || null) : (s.art2 || oppDeck?.art2 || null);
+    const ci = isMe ? (myDeck?.ci || []) : (s.ci || oppDeck?.ci || []);
     const who = isMe
-      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select><span class="ed-me-art">${artCI(myDeck, "art art-sm")}</span></div>`
+      ? `<div class="part-name">Me</div><select class="ed-deck" style="width:100%">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select>`
       : `<select class="ed-player"><option value="">Guest</option>${roster.map(p => `<option value="${p.id}" ${p.id === s.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
          <div class="ed-picker" data-i="${i}"></div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-i="${i}">
+      <div class="part-art">${rowArt(art, ci, art2)}</div>
       <div class="part-body">${who}</div>
       <div class="ed-nums"><label><span class="lbl">Place</span>${numSel("ed-place", s.placement, "?")}</label><label><span class="lbl">Turn</span>${numSel("ed-turn", s.seat, "?")}</label></div>
     </div>`;
@@ -954,11 +1068,14 @@ function renderEdit() {
   const v = $("#view-edit");
   v.querySelectorAll(".ed-picker").forEach(mount => {
     const i = +mount.dataset.i; const s = g.seats[i]; const d = s.deckId ? S.deckById(s.deckId) : null;
-    editPickers[i] = makePicker(mount, { commander: s.commander || d?.commander || "", commander2: s.commander2 || d?.commander2 || null, art: s.art || d?.art || null, ci: s.ci || d?.ci || [] }, () => {}, { pips: false });
+    editPickers[i] = makePicker(mount, { commander: s.commander || d?.commander || "", commander2: s.commander2 || d?.commander2 || null, art: s.art || d?.art || null, art2: s.art2 || d?.art2 || null, ci: s.ci || d?.ci || [] }, upd => {
+      const box = mount.closest(".part-row")?.querySelector(".part-art");   // refresh the big left art live
+      if (box) box.innerHTML = rowArt(upd.art, upd.ci, upd.art2);
+    }, { pips: false, art: false });
   });
   v.querySelector(".ed-deck")?.addEventListener("change", e => {
     const d = S.deckById(e.target.value);
-    e.target.closest("div").querySelector(".ed-me-art").innerHTML = d ? artCI(d, "art art-sm") : "";
+    e.target.closest(".part-row").querySelector(".part-art").innerHTML = rowArt(d?.art, d?.ci || [], d?.art2);
   });
   v.querySelector("#edit-close").addEventListener("click", () => switchTab("history"));
   v.querySelector("#edit-save").addEventListener("click", saveEdit);
@@ -1075,6 +1192,7 @@ const SECOND_LABEL = { partner:"Partner", partnerWith:"Partner with", background
 
 function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
   const showPips = opts.pips !== false;
+  const showArt = opts.art !== false;   // false when the art is shown elsewhere (e.g. big row art)
   const v = {
     commander: initial.commander || "", commander2: initial.commander2 || null,
     art: initial.art || null, art2: initial.art2 || null, ci: (initial.ci || []).slice(),
@@ -1087,7 +1205,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
     <div class="ac-wrap">
       <div class="primary-head" style="display:flex;align-items:center;gap:8px">
         <input class="primary-input" type="text" placeholder="Commander…" value="${esc(v.commander)}" autocomplete="off" style="flex:1" />
-        <span class="art-slot">${frameArt(artImg(v.art, "art art-sm"), v.ci, true)}</span>
+        ${showArt ? `<span class="art-slot">${frameArt(artImg(v.art, "art field"), v.ci, "field")}</span>` : ""}
         ${showPips ? `<span class="pips-slot">${ciPips(v.ci)}</span>` : ""}
       </div>
       <div class="ac-list primary-list" hidden></div>
@@ -1102,7 +1220,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
 
   const emit = () => onChange({ ...v, ci: v.ci.slice() });
   // re-frame the primary art with the current merged CI (ring replaces the old inline pips)
-  const renderArtSlot = () => { artSlot.innerHTML = v.art ? frameArt(artImg(v.art, "art art-sm"), v.ci, true) : ""; };
+  const renderArtSlot = () => { if (artSlot) artSlot.innerHTML = v.art ? frameArt(artImg(v.art, "art field"), v.ci, "field") : ""; };
   const refreshPips = () => { v.ci = SF.mergeCI(v.baseCi, v.ci2); if (pipsSlot) pipsSlot.innerHTML = ciPips(v.ci); renderArtSlot(); };
 
   function renderList(el, names, onPick) {
@@ -1135,13 +1253,11 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
       <div class="second-pick"><div class="second-label">${SECOND_LABEL[v.second.type] || "Second"}</div>
         <div class="ac-wrap" style="display:flex;align-items:center;gap:8px">
           <input class="second-input" type="text" placeholder="${SECOND_LABEL[v.second.type] || "Second card"}…" value="${esc(v.commander2 || "")}" autocomplete="off" style="flex:1" />
-          <span class="art-slot2">${frameArt(artImg(v.art2, "art art-sm"), v.ci2, true)}</span>
-          ${v.commander2 ? '<button class="clear-x" title="Clear">✕</button>' : ""}
+          ${showArt ? `<span class="art-slot2">${frameArt(artImg(v.art2, "art field"), v.ci2, "field")}</span>` : ""}
           <div class="ac-list second-list" hidden></div>
         </div></div>`;
     const sec = secondSlot.querySelector(".second-input");
     const secList = secondSlot.querySelector(".second-list");
-    secondSlot.querySelector(".clear-x")?.addEventListener("click", () => { v.commander2 = null; v.art2 = null; v.ci2 = []; refreshPips(); renderSecond(); emit(); });
     sec.addEventListener("input", () => {
       v.commander2 = sec.value || null; emit();
       clearTimeout(tSec); tSec = setTimeout(async () => renderList(secList, await SF.searchSecond(sec.value, v.second), pickSecond), 250);
@@ -1150,7 +1266,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
   }
 
   primary.addEventListener("input", () => {
-    v.commander = primary.value; v.art = null; artSlot.innerHTML = ""; emit();
+    v.commander = primary.value; v.art = null; if (artSlot) artSlot.innerHTML = ""; emit();
     clearTimeout(tPrim); tPrim = setTimeout(async () => renderList(primaryList, await SF.commanderAutocomplete(primary.value), pickPrimary), 250);
   });
   primary.addEventListener("blur", () => setTimeout(() => primaryList.hidden = true, 150));

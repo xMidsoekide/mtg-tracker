@@ -39,7 +39,14 @@
   .pos { color: var(--good); } .neg { color: var(--bad); }
   /* sparkline + hover/hold chip */
   .spark-wrap { position: relative; touch-action: none; }
-  .spark-wrap .spark-hit { cursor: pointer; }
+  .spark-wrap svg { display: block; }
+  .spark-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%;
+    transform: translate(-50%, -50%); box-shadow: 0 0 0 1.5px var(--bg); cursor: pointer; }
+  .spark-dot.end { width: 8px; height: 8px; }
+  .spark-dot::before { content: ""; position: absolute; inset: -8px; }  /* fat tap target */
+  /* soft dotted "0 = matching the pod" baseline (HTML so it stays crisp under the SVG stretch) */
+  .spark-zero { position: absolute; left: 0; right: 0; border-top: 1.5px dotted var(--muted);
+    opacity: .45; pointer-events: none; }
   .spark-chip { position: absolute; bottom: 100%; margin-bottom: 4px; transform: translateX(-50%);
     background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
     font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 7px; white-space: nowrap;
@@ -109,6 +116,7 @@
   .opp-block { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 12px; margin-bottom:9px; }
   .opp-row { display:flex; gap:8px; align-items:center; margin-bottom:9px; }
   .opp-row:last-child { margin-bottom:0; }
+  .part-body .opp-row { margin-bottom:0; }   /* part-body gap handles the spacing now */
   .opp-row input { flex:1; }
   .opp-row .opp-player { flex:1 1 auto; width:auto; }
   .opp-row .opp-place { flex:0 0 120px; width:120px; }
@@ -147,8 +155,10 @@
   .set-card code { background:var(--surface-2); padding:1px 6px; border-radius:5px; font-size:12px; }
 
   /* head-to-head / rivals */
-  .h2h { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:13px 14px; margin-bottom:10px; }
-  .h2h .top { display:flex; justify-content:space-between; align-items:baseline; }
+  .h2h { display:flex; align-items:stretch; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:12px; margin-bottom:10px; }
+  .h2h[data-rival] { cursor:pointer; }
+  .h2h-body { flex:1; min-width:0; }
+  .h2h .top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   .h2h .who { font-weight:650; font-size:16px; }
   .h2h .rec { font-size:13px; color:var(--muted); }
   .h2h .wld { display:flex; height:10px; border-radius:5px; overflow:hidden; margin-top:10px; background:var(--surface-2); }
@@ -171,14 +181,23 @@
   .live-head { display:flex; align-items:center; justify-content:space-between; margin:6px 0 2px; }
   .live-head h2 { font-size:18px; }
   .part-list { display:flex; flex-direction:column; gap:8px; margin-top:8px; }
-  .part-row { display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:10px 12px; }
+  .part-row { display:flex; align-items:stretch; gap:12px; background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:9px 10px; }
   .part-row.me { border-color:var(--accent); }
-  .part-lead { min-width:26px; text-align:center; color:var(--muted); font-size:14px; }
-  .part-body { flex:1; min-width:0; }
-  .part-name { font-weight:600; font-size:14.5px; margin-bottom:6px; }
+  /* big square commander art on the left of the row; fixed width, vertically centred. Each art is
+     forced square via aspect-ratio; a partner deck stacks two squares (frame grows taller). */
+  .part-art { flex:0 0 auto; width:74px; align-self:center; }
+  .h2h-art  { flex:0 0 auto; width:88px; align-self:center; }
+  .ci-frame.rowfill { display:flex; flex-direction:column; gap:7px; width:100%; padding:3px; border-radius:14px; }
+  .ci-frame.rowfill.noring { padding:0; }
+  .ci-frame.rowfill > .rowfill { width:100%; aspect-ratio:1; border-radius:10px; object-fit:cover; object-position:50% 22%; display:block; }
+  .ci-frame.rowfill.noring > .rowfill { border-radius:11px; }
+  .rowfill.ph { background:var(--surface-2); }
+  .part-body { flex:1; min-width:0; display:flex; flex-direction:column; gap:7px; justify-content:center; }
+  .part-name { font-weight:600; font-size:14.5px; }
+  .part-name .lead { color:var(--muted); font-weight:700; margin-right:6px; }
+  .part-static { font-size:14px; }
   .part-deck { width:100%; }
-  .part-move { display:flex; flex-direction:column; gap:3px; }
-  .part-move button { background:var(--surface-2); border:1px solid var(--line); color:var(--text); width:30px; height:22px; border-radius:6px; font-size:11px; cursor:pointer; padding:0; }
+  .part-drag, .part-rm, .part-rm-spacer, .ed-nums { align-self:center; }
   .part-rm { background:none; border:0; color:var(--bad); font-size:16px; cursor:pointer; padding:4px; width:24px; }
   .part-rm-spacer { display:inline-block; width:24px; flex:0 0 24px; }
   .add-players { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
@@ -198,13 +217,13 @@
      framed footprint stays ~equal to the bare art and rows keep aligning. */
   .ci-frame { display:inline-flex; flex:0 0 auto; padding:2.5px; border-radius:11px; line-height:0; }
   .lb-row .ci-frame { margin-right:2px; }
-  .ci-frame > .art { width:37px; height:37px; border-radius:8px; margin:0; }
-  .ci-frame.sm { padding:2px; border-radius:8px; }
-  .ci-frame.sm > .art { width:26px; height:26px; border-radius:6px; }
+  .ci-frame > .art { margin:0; }   /* don't shrink the art — the ring just adds size outside */
+  /* art beside a form field (log / edit / live): fixed size, kept just under the input box height */
+  .ci-frame.field { padding:3px; border-radius:12px; }
+  .ci-frame.field > .art { width:40px; height:40px; border-radius:9px; }
+  .art.field { width:40px; height:40px; border-radius:10px; }
   .ci-frame.banner { display:block; padding:2.5px; border-radius:calc(var(--r) + 2px); margin:8px 0 4px; }
   .ci-frame.banner > .deck-hero-art { margin:0; display:block; }
-  .ci-frame.rec { display:block; padding:2px; border-radius:9px; margin-bottom:7px; }
-  .ci-frame.rec > .recent-art { margin:0; display:block; }
   /* art focal-point tuner (deck editor) */
   .art-tune { margin:4px 0 2px; }
   .tune-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:7px; }
@@ -225,7 +244,6 @@
   .ac-empty { padding:10px 11px; color:var(--muted); font-size:13px; }
   .second-pick { margin-top:8px; padding-top:9px; border-top:1px dashed var(--line); }
   .second-label { font-size:11px; color:var(--accent); text-transform:uppercase; letter-spacing:.5px; margin-bottom:6px; }
-  .clear-x { background:none; border:0; color:var(--muted); cursor:pointer; font-size:14px; padding:0 4px; }
 
   /* deck manager */
   .deck-list { display:flex; flex-direction:column; gap:8px; }
@@ -272,6 +290,8 @@
   <!-- DECK DETAIL -->
   <section id="view-deck" class="view"></section>
 
+  <section id="view-rival" class="view"></section>
+
   <!-- EDIT GAME -->
   <section id="view-edit" class="view"></section>
 
@@ -282,11 +302,11 @@
   <section id="view-settings" class="view"></section>
 
   <nav class="tabbar">
-    <button data-tab="dash" class="on"><span class="ico">📊</span>Overview</button>
-    <button data-tab="compare"><span class="ico">📈</span>Compare</button>
+    <button data-tab="dash" class="on"><span class="ico">🏆</span>Overview</button>
+    <button data-tab="compare"><span class="ico">⚖️</span>Compare</button>
     <button data-tab="rivals"><span class="ico">⚔️</span>Rivals</button>
-    <button data-tab="history"><span class="ico">🗒️</span>History</button>
-    <button data-tab="log"><span class="ico">➕</span>Log</button>
+    <button data-tab="history"><span class="ico">📜</span>History</button>
+    <button data-tab="log"><span class="ico">🪶</span>Log</button>
   </nav>
 
   <script type="module" src="js/app.js"></script>

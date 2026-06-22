@@ -17,7 +17,6 @@ import {
   bogeyDecks,
   wilson,
   confidence,
-  podSplit,
 } from "../js/metrics.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -110,6 +109,20 @@ test("aggregateDeck: multi-game means and lastPlayed", () => {
   assert.equal(a.avgPlace, 2);
   assert.ok(a.volatility > 0);
   assert.equal(a.lastPlayed, "2026-03-01");
+});
+
+test("aggregateDeck: finishVsAvg is normalized finish minus 0.5 (pod-size-fair)", () => {
+  // 2nd of 4 every game -> avgNorm 2/3 -> +1/6, NOT a loss-flavoured negative
+  const a = aggregateDeck([game("g1", { placement: 2, podSize: 4 }), game("g2", { placement: 2, podSize: 4 })]);
+  assert.ok(Math.abs(a.finishVsAvg - (2 / 3 - 0.5)) < 1e-9);
+  // last every game -> avgNorm 0 -> -0.5 (floor)
+  const last = aggregateDeck([game("g", { placement: 4, podSize: 4 })]);
+  assert.equal(last.finishVsAvg, -0.5);
+  // 1st every game -> +0.5 (ceiling); baseline is 0.5 regardless of pod size
+  const top4 = aggregateDeck([game("a", { placement: 1, podSize: 4 })]);
+  const top5 = aggregateDeck([game("b", { placement: 1, podSize: 5 })]);
+  assert.equal(top4.finishVsAvg, 0.5);
+  assert.equal(top5.finishVsAvg, 0.5);
 });
 
 /* ---------- form ---------- */
@@ -269,18 +282,20 @@ test("confidence: enough + needed", () => {
   assert.deepEqual(confidence(0, 0), { enough: true, needed: 0 });
 });
 
-/* ---------- podSplit ---------- */
-test("podSplit: splits 4 vs 5 player pods", () => {
+test("aggregateDeck(games, playerId): opponent finish over recorded placements only", () => {
   const games = [
-    game("g1", { placement: 1, podSize: 4 }),
-    game("g2", { placement: 2, podSize: 5 }),
-    game("g3", { placement: 3, podSize: 5 }),
+    game("g1", { placement: 3, podSize: 4, opps: [{ playerId: "p", placement: 1 }] }),
+    game("g2", { placement: 2, podSize: 4, opps: [{ playerId: "p", placement: 2 }] }),
+    game("g3", { placement: 1, podSize: 4, opps: [{ playerId: "p" }] }), // p placement not recorded
   ];
-  const s = podSplit(games);
-  assert.equal(s.p4.games, 1);
-  assert.equal(s.p5.games, 2);
-  assert.equal(s.p4.avgPodSize, 4);
-  assert.equal(s.p5.avgPodSize, 5);
+  const a = aggregateDeck(games, "p");
+  assert.equal(a.games, 3);   // appeared in 3
+  assert.equal(a.scored, 2);  // finish known for 2
+  assert.equal(a.wins, 1);
+  assert.equal(a.actualWR, 0.5);
+  assert.equal(a.avgPlace, 1.5);
+  // norms: 1st->1, 2nd->2/3; avg = 5/6; finishVsAvg = 5/6 - 1/2
+  assert.ok(Math.abs(a.finishVsAvg - (5 / 6 - 0.5)) < 1e-9);
 });
 
 /* ---------- real seed data smoke test ---------- */
@@ -295,5 +310,4 @@ test("aggregates real games.json without throwing", () => {
   assert.ok(headToHead(games)); // all opponents null-playerId here -> {}
   assert.ok(bogeyDecks(games)); // keyed by commander strings
   assert.ok(form(games));
-  assert.ok(podSplit(games));
 });

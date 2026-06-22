@@ -11,7 +11,8 @@ export const normalizedScore = (placement, podSize) =>
 
 export const expectedWR = (podSize) => 1 / podSize;
 
-export const mySeat = (game) => game.seats?.find((s) => s.playerId === "me");
+export const seatOf = (game, playerId = "me") => game.seats?.find((s) => s.playerId === playerId);
+export const mySeat = (game) => seatOf(game, "me");
 
 /* mean/stdev return null on empty (or <2 for stdev) so callers never see NaN. */
 const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
@@ -26,43 +27,47 @@ const stdev = (xs) => {
 const podSize = (game) => game.seats.length;
 
 /* ---------- aggregateDeck ---------- */
-/* Aggregates *my* results over a set of games (already filtered to one deck, or all). */
-export function aggregateDeck(games) {
-  const n = games.length;
-  if (!n) {
+/* Aggregates a player's results over a set of games (filtered to one deck, or all). playerId
+   defaults to "me" so existing callers are unchanged. `games` = games the player appeared in;
+   finish/win figures use only games where their placement was recorded (`scored`) — opponents
+   often have no recorded finish, so the two can differ. */
+export function aggregateDeck(games, playerId = "me") {
+  const present = games
+    .map((g) => ({ seat: seatOf(g, playerId), size: podSize(g), date: g.date }))
+    .filter((m) => m.seat);
+  const total = present.length;
+  if (!total) {
     return {
-      games: 0,
-      wins: 0,
-      actualWR: null,
-      expectedWR: null,
-      wrVsExpected: null,
-      avgPlace: null,
-      avgNorm: null,
-      volatility: null,
-      avgPodSize: null,
-      lastPlayed: null,
+      games: 0, scored: 0, wins: 0, actualWR: null, expectedWR: null, wrVsExpected: null,
+      avgPlace: null, avgNorm: null, finishVsAvg: null, volatility: null, avgPodSize: null, lastPlayed: null,
     };
   }
 
-  const me = games.map((g) => ({ seat: mySeat(g), size: podSize(g), date: g.date }));
-  const placements = me.map((m) => m.seat.placement);
-  const norms = me.map((m) => normalizedScore(m.seat.placement, m.size));
-  const exps = me.map((m) => expectedWR(m.size));
+  const scored = present.filter((m) => m.seat.placement != null);
+  const n = scored.length;
+  const placements = scored.map((m) => m.seat.placement);
+  const norms = scored.map((m) => normalizedScore(m.seat.placement, m.size));
   const wins = placements.filter(won).length;
-  const actualWR = wins / n;
-  const expWR = mean(exps);
+  const actualWR = n ? wins / n : null;
+  const expWR = n ? mean(scored.map((m) => expectedWR(m.size))) : null;
+  const avgNorm = mean(norms);
 
   return {
-    games: n,
+    games: total,
+    scored: n,
     wins,
     actualWR,
     expectedWR: expWR,
-    wrVsExpected: actualWR - expWR,
+    wrVsExpected: actualWR == null ? null : actualWR - expWR,
     avgPlace: mean(placements),
-    avgNorm: mean(norms),
+    avgNorm,
+    // finish vs a random seat: normalized finish averages 0.5 for any pod size, so the
+    // baseline is a clean 50% (pod-size-fair without a 1/podSize term). This is the app's
+    // north-star — rewards placing well, not only winning.
+    finishVsAvg: avgNorm == null ? null : avgNorm - 0.5,
     volatility: stdev(norms),
-    avgPodSize: mean(me.map((m) => m.size)),
-    lastPlayed: me.map((m) => m.date).sort().at(-1),
+    avgPodSize: mean(present.map((m) => m.size)),
+    lastPlayed: present.map((m) => m.date).sort().at(-1),
   };
 }
 
@@ -82,15 +87,18 @@ export function form(games, n = 5) {
 }
 
 /* ---------- pilotOverall ---------- */
-/* North-star: my WR vs expected + actual WR across every game. Reuses aggregateDeck. */
-export function pilotOverall(games) {
-  const a = aggregateDeck(games);
+/* North-star: a player's finish vs average (+ win rate) across every game they appeared in. */
+export function pilotOverall(games, playerId = "me") {
+  const a = aggregateDeck(games, playerId);
   return {
     games: a.games,
+    scored: a.scored,
     wins: a.wins,
     actualWR: a.actualWR,
     expectedWR: a.expectedWR,
     wrVsExpected: a.wrVsExpected,
+    avgNorm: a.avgNorm,
+    finishVsAvg: a.finishVsAvg,
   };
 }
 
@@ -102,13 +110,16 @@ export function seatBreakdown(games) {
     const inSeat = games.filter((g) => mySeat(g).seat === s);
     const placements = inSeat.map((g) => mySeat(g).placement);
     const exps = inSeat.map((g) => expectedWR(podSize(g)));
+    const norms = inSeat.map((g) => normalizedScore(mySeat(g).placement, podSize(g)));
     const wins = placements.filter(won).length;
     const actualWR = inSeat.length ? wins / inSeat.length : null;
     const expWR = mean(exps);
+    const avgNorm = mean(norms);
     out[s] = {
       games: inSeat.length,
       wins,
       wrVsExpected: actualWR == null ? null : actualWR - expWR,
+      finishVsAvg: avgNorm == null ? null : avgNorm - 0.5,
       avgPlace: mean(placements),
     };
   }
@@ -184,13 +195,4 @@ export function wilson(wins, n, z = 1.96) {
 /* ---------- confidence ---------- */
 export function confidence(n, min) {
   return { enough: n >= min, needed: Math.max(0, min - n) };
-}
-
-/* ---------- podSplit ---------- */
-/* Aggregate my results separately for 4- and 5-player pods. */
-export function podSplit(games) {
-  return {
-    p4: aggregateDeck(games.filter((g) => podSize(g) === 4)),
-    p5: aggregateDeck(games.filter((g) => podSize(g) === 5)),
-  };
 }
