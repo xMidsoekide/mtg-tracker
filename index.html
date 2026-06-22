@@ -4,6 +4,13 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
 <title>MTG Commander Tracker</title>
+<!-- PWA: installable to the home screen, runs fullscreen + offline -->
+<link rel="manifest" href="manifest.json" />
+<meta name="theme-color" content="#0f1115" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="Tracker" />
+<link rel="apple-touch-icon" href="icons/icon-180.png" />
 <style>
   :root {
     --bg: #0f1115; --surface: #171a21; --surface-2: #1f242e;
@@ -312,5 +319,10 @@
   </nav>
 
   <script type="module" src="js/app.js"></script>
+  <script>
+    // Register the service worker (offline + installable). Ignored on unsupported/insecure origins.
+    if ("serviceWorker" in navigator)
+      addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+  </script>
 </body>
 </html>
