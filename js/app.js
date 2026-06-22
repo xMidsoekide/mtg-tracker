@@ -245,20 +245,19 @@ function deckLbHtml(rows, clickable = true) {
 function recentBlock(games, pid, clickable) {
   const recent = [];
   for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
-    const id = M.seatOf(g, pid)?.deckId;
-    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date });
+    const s = M.seatOf(g, pid); const id = s?.deckId;
+    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date, place: s.placement, pod: g.seats.length });
     if (recent.length === 3) break;
   }
   if (!recent.length) return "";
   const cards = recent.map(r => {
     const d = S.deckById(r.id);
-    const ag = M.aggregateDeck(allGames().filter(g => M.seatOf(g, pid)?.deckId === r.id), pid);
-    const cls = (ag.finishVsAvg ?? 0) >= 0 ? "pos" : "neg";
     const nav = clickable ? ` data-deck="${r.id}"` : ` style="cursor:default"`;
     return `<div class="leader"${nav}>
       ${d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : ""}
       <div class="lt">${relDate(r.date)}</div>
-      <div class="ln">${esc(shortName(d.commander))}</div><div class="lv ${cls}">${rate(ag.avgNorm)}</div></div>`;
+      <div class="ln">${esc(shortName(d.commander))}</div>
+      <div class="lr"><span class="lv" style="color:${placeColor(r.place, r.pod)}">${r.place == null ? "—" : ord(r.place)}</span><span class="lp">${r.pod}P</span></div></div>`;
   }).join("");
   return `<div class="section-head"><h2>Recently played</h2></div><div class="recent-grid">${cards}</div>`;
 }
@@ -306,6 +305,19 @@ const METRICS = [
 const goodnessColor = f => f <= 0.5
   ? `color-mix(in srgb, var(--warn) ${(f * 200).toFixed(0)}%, var(--bad))`
   : `color-mix(in srgb, var(--good) ${((f - 0.5) * 200).toFixed(0)}%, var(--warn))`;
+
+/* colour a finishing place relative to the pod: 1st = gold (the win), 2nd = green, then a pure
+   orange → red gradient for 3rd…last. Green is never blended into the orange (that mix goes
+   yellow, which reads like the gold), so every tier stays visually distinct. Shared by
+   recently-played + history. */
+const placeColor = (p, pod) => {
+  if (p == null) return "var(--muted)";
+  if (p === 1) return "var(--accent)";          // gold — the win
+  if (p === 2) return "var(--good)";            // green — runner-up
+  if (p >= pod) return "var(--bad)";            // red — dead last
+  const f = (pod - p) / (pod - 3);              // 3rd = orange (1) … toward last = red (0)
+  return `color-mix(in srgb, #e0742e ${(f * 100).toFixed(0)}%, var(--bad))`;
+};
 
 function metricSection(m) {
   let rows = deckRows(podFilter).filter(d => d.games && d[m.key] != null);
@@ -439,12 +451,12 @@ function openDeck(deckId) {
     <span class="lab">${ord(i + 1)}</span></div>`).join("");
 
   const games = gs.slice().reverse().map(g => {
-    const ms = M.mySeat(g); const w = M.won(ms.placement);
+    const ms = M.mySeat(g);
     const opp = g.seats.filter(s => s.playerId !== "me")
       .map(s => esc((s.playerId ? (S.playerById(s.playerId)?.name + ": ") : "") + seatCards(s))).join(" · ");
     return `<div class="game-item"><div class="top">
       <strong>${euDate(g.date)} · ${g.seats.length}P · seat ${ms.seat ?? "?"}</strong>
-      <span class="badge" style="background:${w ? "#16382c" : "#3a1f1d"};color:${w ? "var(--good)" : "var(--bad)"}">${w ? "1st 🏆" : ord(ms.placement)}</span></div>
+      <span class="badge" style="color:${placeColor(ms.placement, g.seats.length)}">${ms.placement === 1 ? "1st 🏆" : ord(ms.placement)}</span></div>
       <div class="note">vs ${opp}</div>${g.notes ? `<div class="note">📝 ${esc(g.notes)}</div>` : ""}</div>`;
   }).join("");
 
@@ -495,7 +507,7 @@ function renderRivals() {
     const leg = (color, label, n) => n ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
     return `<div class="h2h" data-rival="${id}">
-      <div class="h2h-art">${rowArt(top?.art, top?.ci, top?.art2)}</div>
+      <div class="h2h-art">${rowArt(top?.art, top?.ci)}</div>
       <div class="h2h-body">
         <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
         ${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}
@@ -1010,8 +1022,7 @@ function renderHistory() {
   const games = allGames().slice().sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const rows = games.map(g => {
     const { ms, myDeck, opp } = gameSummary(g);
-    const w = ms && M.won(ms.placement);
-    const badge = ms ? `<span class="badge" style="background:${w ? "#16382c" : "#3a1f1d"};color:${w ? "var(--good)" : "var(--bad)"}">${w ? "1st" : ord(ms.placement)}</span>` : "";
+    const badge = ms?.placement ? `<span class="badge" style="color:${placeColor(ms.placement, g.seats.length)}">${ord(ms.placement)}</span>` : "";
     return `<div class="game-item tap" data-game="${g.id}"><div class="top">
       <strong>${euDate(g.date)} · ${esc(myDeck)}</strong>${badge}</div>
       <div class="note">${g.seats.length}P · vs ${esc(opp)}</div></div>`;
