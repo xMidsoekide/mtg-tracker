@@ -810,6 +810,7 @@ let lastTab = "dash";
 const VIEW = { dash: "view-dash", compare: "view-compare", rivals: "view-rivals", history: "view-history", log: "view-log", settings: "view-settings" };
 function showView(id) {
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === id));
+  window.scrollTo(0, 0);   // a new view always starts at the top, not the previous tab's scroll
 }
 function switchTab(tab) {
   document.querySelectorAll("nav.tabbar button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
