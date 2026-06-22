@@ -476,8 +476,8 @@ function openDeck(deckId) {
     <div class="chart-card"><h3>Placement distribution</h3><div class="dist">${bars}</div></div>
     <div class="section-head"><h2>Games (${gs.length})</h2></div>
     ${games || '<div class="empty">No games logged</div>'}`;
-  $("#deck-back").addEventListener("click", () => switchTab(lastTab));
-  showView("view-deck");
+  $("#deck-back").addEventListener("click", () => history.back());
+  navForward(() => showView("view-deck"));
 }
 
 /* a player's most-played commander (for their Rivals avatar) */
@@ -546,9 +546,9 @@ function openRival(pid) {
   const theirGames = allGames().filter(g => M.seatOf(g, pid));
   const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating`, false);
   $("#view-rival").innerHTML = `<button class="back" id="rival-back">‹ Rivals</button>${ov.html}`;
-  $("#rival-back").addEventListener("click", () => switchTab("rivals"));
+  $("#rival-back").addEventListener("click", () => history.back());
   wireSpark($("#view-rival"), ov.series);
-  showView("view-rival");
+  navForward(() => showView("view-rival"));
 }
 
 /* ---------- Log (fast entry) ---------- */
@@ -782,7 +782,7 @@ function renderSettings() {
       <div class="row-actions"><button class="btn-ghost" id="export-btn">Export</button><button class="btn-ghost" id="import-btn">Import</button></div>
       <textarea id="io-box" placeholder="Paste JSON here to import…" style="margin-top:10px;min-height:90px"></textarea></div>`;
   const v = $("#view-settings");
-  v.querySelector("#set-back").addEventListener("click", () => switchTab(lastTab === "settings" ? "dash" : lastTab));
+  v.querySelector("#set-back").addEventListener("click", () => history.back());
   v.querySelector("#min-choice").addEventListener("click", e => {
     const c = e.target.closest(".chip"); if (!c) return;
     MIN_GAMES = +c.dataset.min; S.setSetting("minGames", MIN_GAMES); markDirty(); renderSettings();
@@ -824,10 +824,42 @@ function switchTab(tab) {
   if (tab === "settings") renderSettings();
 }
 
-document.querySelector("nav.tabbar").addEventListener("click", e => {
-  const b = e.target.closest("button"); if (b) switchTab(b.dataset.tab);
+/* ---------- hardware Back button (Android / iOS standalone PWA) ----------
+   Each forward navigation pushes a history entry and remembers how to restore the
+   screen we left. The phone's Back button — and our own ‹ Back buttons, which just
+   call history.back() — fire popstate, which pops one entry and restores it. So Back
+   walks back through screens instead of closing the app. At the root stack it exits. */
+const navStack = [];
+let navLock = false;   // true while restoring, so a restore doesn't re-push
+
+function snapshotScreen() {
+  const viewId = document.querySelector(".view.active")?.id;
+  const tab = lastTab, isTab = VIEW[tab] === viewId;
+  return () => {   // restore this exact screen
+    navLock = true;
+    if (isTab) switchTab(tab);   // re-render the tab fresh (data may have changed)
+    else {                       // detail view: its content still lives in the DOM
+      document.querySelectorAll("nav.tabbar button").forEach(b => b.classList.toggle("on", b.dataset.tab === tab));
+      showView(viewId);
+    }
+    navLock = false;
+  };
+}
+function navForward(apply) {   // wrap any navigation that opens a new screen
+  if (navLock) return apply();
+  navStack.push(snapshotScreen());
+  history.pushState({ d: navStack.length }, "");
+  apply();
+}
+window.addEventListener("popstate", () => {
+  const restore = navStack.pop();
+  if (restore) restore();   // empty stack → browser exits the app (correct at the root)
 });
-$("#sync-btn").addEventListener("click", () => { renderSettings(); showView("view-settings"); });
+
+document.querySelector("nav.tabbar").addEventListener("click", e => {
+  const b = e.target.closest("button"); if (b) navForward(() => switchTab(b.dataset.tab));
+});
+$("#sync-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));
 
 /* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock, so the
    debounced push otherwise never fires). We deliberately do NOT auto-pull on focus or on a timer —
@@ -1040,7 +1072,7 @@ function openEdit(gameId) {
   const g = allGames().find(x => x.id === gameId); if (!g) return;
   editDraft = JSON.parse(JSON.stringify(g));
   renderEdit();
-  showView("view-edit");
+  navForward(() => showView("view-edit"));
 }
 let editPickers = {};
 function renderEdit() {
@@ -1089,7 +1121,7 @@ function renderEdit() {
     const d = S.deckById(e.target.value);
     e.target.closest(".part-row").querySelector(".part-art").innerHTML = rowArt(d?.art, d?.ci || [], d?.art2);
   });
-  v.querySelector("#edit-close").addEventListener("click", () => switchTab("history"));
+  v.querySelector("#edit-close").addEventListener("click", () => history.back());
   v.querySelector("#edit-save").addEventListener("click", saveEdit);
   v.querySelector("#edit-delete").addEventListener("click", () => {
     if (confirm("Delete this game permanently?")) { S.deleteGame(g.id); markDirty(); toast("Deleted"); switchTab("history"); }
@@ -1147,10 +1179,7 @@ function renderDecks() {
     deckPicker = makePicker(mount, d || {}, val => renderArtTune(val.art));
     renderArtTune(deckPicker.getValue().art);
   }
-  v.querySelector("#decks-back").addEventListener("click", () => {
-    const t = Object.keys(VIEW).find(k => VIEW[k] === decksReturn);
-    if (t) switchTab(t); else { renderSettings(); showView("view-settings"); }
-  });
+  v.querySelector("#decks-back").addEventListener("click", () => history.back());
   v.querySelector("#deck-add")?.addEventListener("click", () => { editingDeck = "new"; renderDecks(); });
   v.querySelectorAll("[data-edit]").forEach(b => b.addEventListener("click", () => { editingDeck = b.dataset.edit; renderDecks(); }));
   v.querySelectorAll("[data-del]").forEach(b => b.addEventListener("click", () => {
@@ -1192,10 +1221,8 @@ function saveDeckEdit() {
   }
   markDirty(); editingDeck = null; deckPicker = null; renderDecks();
 }
-let decksReturn = "view-settings";
 function openDecks() {
-  decksReturn = document.querySelector(".view.active")?.id || "view-settings";
-  editingDeck = null; renderDecks(); showView("view-decks");
+  editingDeck = null; renderDecks(); navForward(() => showView("view-decks"));
 }
 
 /* ---------- commander picker (Scryfall autocomplete + partner/background) ---------- */
