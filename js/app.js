@@ -16,6 +16,28 @@ const deckCI = d => d?.ci || [];
 const ciPips = ci => ci?.length ? `<span class="pips-ci">${ci.map(c => `<span class="ci ${c}"></span>`).join("")}</span>` : "";
 const artImg = (url, cls = "art", pos) => url ? `<img class="${cls}" src="${esc(url)}" ${pos ? `style="object-position:50% ${pos}%"` : ""} alt="" loading="lazy" />` : "";
 const artPosOf = d => d?.artPos ?? null;   // vertical focal %, null = CSS default
+
+/* ---- colour-identity ring: a CI-coloured border around the commander art, replacing the
+   inline pips so it conveys identity without eating horizontal space. Square thumbnails get a
+   conic ring (equal wedges); wide banners get a left→right linear band. ---- */
+const CI_COLOR = { W:"#f6f0da", U:"#2f7dc0", B:"#414048", R:"#d0473e", G:"#3f9d5c", C:"#9aa0a8" };
+const ciGrad = (ci, kind = "conic") => {
+  if (!ci?.length) return "";
+  if (ci.length === 1) return CI_COLOR[ci[0]];
+  const span = kind === "linear" ? 100 : 360, u = kind === "linear" ? "%" : "deg", step = span / ci.length;
+  const stops = ci.map((c, i) => `${CI_COLOR[c]} ${(i * step).toFixed(1)}${u} ${((i + 1) * step).toFixed(1)}${u}`).join(",");
+  return kind === "linear" ? `linear-gradient(90deg,${stops})` : `conic-gradient(from 0deg,${stops})`;
+};
+/* wrap an already-built art <img> in a CI ring; returns the bare art when there's no art or no CI */
+const frameArt = (artHtml, ci, sm = false) => {
+  const g = artHtml && ciGrad(ci);
+  return g ? `<span class="ci-frame${sm ? " sm" : ""}" style="background:${g}">${artHtml}</span>` : (artHtml || "");
+};
+const frameWide = (artHtml, ci, variant) => {   // variant: "banner" | "rec"
+  const g = artHtml && ciGrad(ci, "linear");
+  return g ? `<span class="ci-frame ${variant}" style="background:${g}">${artHtml}</span>` : (artHtml || "");
+};
+const artCI = (d, cls = "art", pos) => frameArt(artImg(d?.art, cls, pos), deckCI(d), /art-sm/.test(cls));
 const deckTitle = d => d.commander2 ? `${esc(d.commander)} <span style="color:var(--muted)">+</span> ${esc(d.commander2)}` : esc(d.commander);
 const CI_LABEL = { W:"White", U:"Blue", B:"Black", R:"Red", G:"Green", C:"Colourless" };
 /* full commander name for an opponent seat (handles partner pairs) */
@@ -64,29 +86,39 @@ function heroGauge(v, scale = 1) {
   </svg>`;
 }
 
-function heroSpark(data, w = 150, h = 34) {
-  if (data.length < 2) return "";
+/* points = [{date, v}]. The chip overlay (interactivity) is wired up in renderDash;
+   here we draw the line, a dot per game (each dot = one logged game / "change"), and
+   a transparent fat hit-circle per dot so taps/holds on mobile are easy to land. */
+function heroSpark(points, w = 150, h = 34) {
+  if (points.length < 2) return "";
+  const data = points.map(p => p.v);
   const min = Math.min(...data), max = Math.max(...data), span = (max - min) || 1;
   const X = i => i / (data.length - 1) * w, Y = v => h - ((v - min) / span) * (h - 6) - 3;
   const line = data.map((v, i) => `${X(i).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
   const end = data.at(-1);
-  return `<svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
-    <defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="${heroCol(end)}" stop-opacity=".32"/><stop offset="1" stop-color="${heroCol(end)}" stop-opacity="0"/></linearGradient></defs>
-    <polygon points="0,${h} ${line} ${w},${h}" fill="url(#hg)"/>
-    <polyline points="${line}" fill="none" stroke="${heroCol(end)}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-    <circle cx="${w}" cy="${Y(end).toFixed(1)}" r="3.5" fill="${heroCol(end)}"/></svg>`;
+  const dots = points.map((p, i) =>
+    `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="2.2" fill="${heroCol(p.v)}" opacity=".85"/>`).join("");
+  const hits = points.map((p, i) =>
+    `<circle class="spark-hit" cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="10" fill="transparent"
+       data-i="${i}" data-date="${p.date}" data-val="${p.v}"/>`).join("");
+  return `<div class="spark-wrap"><div class="spark-chip"></div>
+    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+      <defs><linearGradient id="hg" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="${heroCol(end)}" stop-opacity=".32"/><stop offset="1" stop-color="${heroCol(end)}" stop-opacity="0"/></linearGradient></defs>
+      <polygon points="0,${h} ${line} ${w},${h}" fill="url(#hg)"/>
+      <polyline points="${line}" fill="none" stroke="${heroCol(end)}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+      ${dots}<circle cx="${w}" cy="${Y(end).toFixed(1)}" r="3.5" fill="${heroCol(end)}"/>${hits}</svg></div>`;
 }
 
-/* cumulative WR-vs-expected after each game, in date order */
+/* cumulative WR-vs-expected after each game, in date order; keeps the date for the chip */
 function heroSeries(games) {
   const sorted = games.slice().sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
-  return sorted.map((_, i) => M.pilotOverall(sorted.slice(0, i + 1)).wrVsExpected);
+  return sorted.map((_, i) => ({ date: sorted[i].date, v: M.pilotOverall(sorted.slice(0, i + 1)).wrVsExpected }));
 }
 function heroTrend(series) {
   if (series.length < 4) return "";
-  const d = series.at(-1) - series.at(-4);
-  return d > 0.005 ? "↗ improving" : d < -0.005 ? "↘ slipping" : "→ steady";
+  const d = series.at(-1).v - series.at(-4).v;
+  return d > 0.005 ? "↗ Improving" : d < -0.005 ? "↘ Slipping" : "→ Steady";
 }
 
 /* ---------- Overview ---------- */
@@ -112,7 +144,10 @@ function renderDash() {
         <div style="flex:0 0 auto">${heroGauge(v, 0.66)}</div>
         <div style="flex:1;min-width:0">
           <div class="value ${wrCls}" style="font-size:32px">${signed(v)}</div>
-          <div class="sub" style="margin:3px 0 ${series.length > 1 ? "9px" : "0"}">${[heroTrend(series), `${a.games} games`, `won ${pct(a.actualWR)}`].filter(Boolean).join(" · ")}</div>
+          <div class="sub" style="margin:3px 0 ${series.length > 1 ? "9px" : "0"}">
+            ${heroTrend(series) ? `<div>${heroTrend(series)}</div>` : ""}
+            <div>${a.games} game${a.games === 1 ? "" : "s"} · Won ${pct(a.actualWR)}</div>
+          </div>
           ${heroSpark(series)}
         </div>
       </div>`;
@@ -135,7 +170,7 @@ function renderDash() {
     const d = S.deckById(r.id); const ag = M.aggregateDeck(myGamesForDeck(r.id));
     const cls = (ag.wrVsExpected ?? 0) >= 0 ? "pos" : "neg";
     return `<div class="leader" data-deck="${r.id}">
-      ${d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : ""}
+      ${frameWide(d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : "", deckCI(d), "rec")}
       <div class="lt">${relDate(r.date)}</div>
       <div class="ln">${esc(shortName(d.commander))}</div><div class="lv ${cls}">${signed(ag.wrVsExpected)}</div></div>`;
   }).join("");
@@ -146,9 +181,9 @@ function renderDash() {
     if (!x.games) return 1; if (!y.games) return -1;
     return (y.wrVsExpected ?? -9) - (x.wrVsExpected ?? -9);
   }).map((d, i) => {
-    const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artImg(d.art, "art", artPosOf(d))}
+    const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artCI(d, "art", artPosOf(d))}
       <div style="min-width:0"><div class="name">${esc(shortName(d.commander))}</div>
-        <div class="theme" style="display:flex;align-items:center;gap:6px;min-width:0">${ciPips(deckCI(d))}<span class="theme-txt">${esc(d.theme)}</span></div></div></div>`;
+        <div class="theme" style="display:flex;align-items:center;gap:6px;min-width:0"><span class="theme-txt">${esc(d.theme)}</span></div></div></div>`;
     if (!d.games) return `<div class="lb-row low" data-deck="${d.id}"><div class="rank">–</div>
       ${idCell}<div class="metric" style="color:var(--muted)">—<small>Not played</small></div></div>`;
     const low = d.games < MIN_GAMES;
@@ -166,6 +201,25 @@ function renderDash() {
 
   $("#view-dash").querySelectorAll("[data-deck]").forEach(r =>
     r.addEventListener("click", () => openDeck(r.dataset.deck)));
+
+  // sparkline: tap/hold (mobile) or hover (desktop) a point -> chip shows that game's date + WR
+  const wrap = $("#view-dash .spark-wrap");
+  if (wrap) {
+    const chip = $(".spark-chip", wrap), n = series.length;
+    const show = el => {
+      chip.textContent = `${euDate(el.dataset.date)} · ${signed(+el.dataset.val)}`;
+      chip.style.left = (n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50) + "%";
+      chip.classList.add("show");
+    };
+    const hide = () => chip.classList.remove("show");
+    wrap.querySelectorAll(".spark-hit").forEach(c => {
+      c.addEventListener("pointerenter", () => show(c));
+      c.addEventListener("pointerdown", () => show(c));
+    });
+    wrap.addEventListener("pointerup", hide);
+    wrap.addEventListener("pointerleave", hide);
+    wrap.addEventListener("pointercancel", hide);
+  }
 }
 
 /* ---------- Compare ---------- */
@@ -323,10 +377,10 @@ function openDeck(deckId) {
   const wrCls = (a.wrVsExpected ?? 0) >= 0 ? "pos" : "neg";
   $("#view-deck").innerHTML = `
     <button class="back" id="deck-back">‹ Back</button>
-    ${d.art ? `<img class="deck-hero-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" />` : ""}
+    ${frameWide(d.art ? `<img class="deck-hero-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" />` : "", deckCI(d), "banner")}
     <div class="section-head" style="margin-top:4px"><div>
       <h2 style="color:var(--text);font-size:18px;text-transform:none;letter-spacing:0">${deckTitle(d)}</h2>
-      <div class="theme" style="color:var(--muted);font-size:13px;margin-top:3px;display:flex;align-items:center;gap:7px">${ciPips(deckCI(d))} ${esc(d.theme)}</div></div></div>
+      <div class="theme" style="color:var(--muted);font-size:13px;margin-top:3px">${esc(d.theme)}</div></div></div>
     <div class="tiles" style="margin-top:12px">
       <div class="tile hero"><div class="label">WR vs expected</div><div class="value ${wrCls}">${signed(a.wrVsExpected)}</div>
         <div class="sub">${a.games} games · won ${pct(a.actualWR)}</div></div>
@@ -347,7 +401,7 @@ function topCommander(games, playerId) {
     if (s.playerId !== playerId) continue;
     const key = s.deckId || s.commander; if (!key) continue;
     const d = s.deckId ? S.deckById(s.deckId) : null;
-    (tally[key] ??= { name: d?.commander || s.commander, art: d?.art || s.art || null, n: 0 }).n++;
+    (tally[key] ??= { name: d?.commander || s.commander, art: d?.art || s.art || null, ci: d?.ci || s.ci || [], n: 0 }).n++;
   }
   const top = Object.values(tally).sort((a, b) => b.n - a.n)[0];
   return top || null;
@@ -367,7 +421,7 @@ function renderRivals() {
     const leg = (color, label, n) => n ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
     return `<div class="h2h"><div class="top" style="gap:10px;align-items:center">
-        ${top?.art ? artImg(top.art) : ""}
+        ${frameArt(artImg(top?.art), top?.ci)}
         <div style="flex:1;min-width:0"><span class="who">${esc(name)}</span>${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}</div>
         <span class="rec">${h.together} games</span></div>
       <div class="wld">${seg(w, "var(--good)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
@@ -377,14 +431,14 @@ function renderRivals() {
   // bogey decks — opponent decks with at least 2 *recorded* finishes vs me, worst first
   const bog = M.bogeyDecks(games);
   const bogRows = Object.entries(bog)
-    .map(([k, b]) => { const d = S.deckById(k); return { name: d?.commander || k, name2: d?.commander2 || null, art: d?.art || null, decided: b.aboveMe + b.belowMe, ...b }; })
+    .map(([k, b]) => { const d = S.deckById(k); return { name: d?.commander || k, name2: d?.commander2 || null, art: d?.art || null, ci: d?.ci || [], decided: b.aboveMe + b.belowMe, ...b }; })
     .filter(b => b.decided >= 2)
     .sort((a, b) => (b.aboveMe / b.decided) - (a.aboveMe / a.decided) || b.decided - a.decided)
     .map(b => {
       const p = Math.round(b.aboveMe / b.decided * 100);
       const label = esc(shortName(b.name)) + (b.name2 ? ` <span style="color:var(--muted)">+</span> ${esc(shortName(b.name2))}` : "");
       return `<div class="lb-row"><div class="rank">${b.faced}×</div>
-        <div style="display:flex;align-items:center;gap:9px;min-width:0">${b.art ? artImg(b.art) : ""}<div style="min-width:0"><div class="name">${label}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
+        <div style="display:flex;align-items:center;gap:9px;min-width:0">${frameArt(artImg(b.art), b.ci)}<div style="min-width:0"><div class="name">${label}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
         <div class="metric ${p >= 50 ? "neg" : "pos"}">${p}%<small>Beat me</small></div></div>`;
     }).join("");
 
@@ -775,12 +829,12 @@ function renderLiveGame(g) {
     let cmdField;
     if (isMe) {
       cmdField = setup
-        ? `<div style="display:flex;align-items:center;gap:8px"><select class="part-deck" style="flex:1">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>${artImg(myDeck?.art, "art art-sm")}</div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(myDeck?.commander || "—")}</span>${artImg(myDeck?.art, "art art-sm")}</div>`;
+        ? `<div style="display:flex;align-items:center;gap:8px"><select class="part-deck" style="flex:1">${myDeckOpts.replace(`value="${p.deckId}"`, `value="${p.deckId}" selected`)}</select>${artCI(myDeck, "art art-sm")}</div>`
+        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(myDeck?.commander || "—")}</span>${artCI(myDeck, "art art-sm")}</div>`;
     } else {
       cmdField = setup
         ? `<div class="part-picker" data-uid="${p.uid}"></div>`
-        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</span>${artImg(p.art, "art art-sm")}</div>`;
+        : `<div class="part-static" style="display:flex;align-items:center;gap:8px"><span>${esc(p.commander || "—")}${p.commander2 ? ` <span style="color:var(--muted)">+</span> ${esc(p.commander2)}` : ""}</span>${frameArt(artImg(p.art, "art art-sm"), p.ci, true)}</div>`;
     }
     // keep the drag handle (and a spacer where there's no ✕) in a fixed column so they line up
     const rm = !setup ? "" : (isMe ? `<span class="part-rm-spacer"></span>` : `<button class="part-rm" data-rm="${p.uid}">✕</button>`);
@@ -881,7 +935,7 @@ function renderEdit() {
     const isMe = s.playerId === "me";
     const myDeck = isMe ? S.deckById(s.deckId) : null;
     const who = isMe
-      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select><span class="ed-me-art">${artImg(myDeck?.art, "art art-sm")}</span></div>`
+      ? `<div class="part-name">Me</div><div style="display:flex;align-items:center;gap:8px"><select class="ed-deck" style="flex:1">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select><span class="ed-me-art">${artCI(myDeck, "art art-sm")}</span></div>`
       : `<select class="ed-player"><option value="">Guest</option>${roster.map(p => `<option value="${p.id}" ${p.id === s.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
          <div class="ed-picker" data-i="${i}"></div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-i="${i}">
@@ -904,7 +958,7 @@ function renderEdit() {
   });
   v.querySelector(".ed-deck")?.addEventListener("change", e => {
     const d = S.deckById(e.target.value);
-    e.target.closest("div").querySelector(".ed-me-art").innerHTML = d?.art ? artImg(d.art, "art art-sm") : "";
+    e.target.closest("div").querySelector(".ed-me-art").innerHTML = d ? artCI(d, "art art-sm") : "";
   });
   v.querySelector("#edit-close").addEventListener("click", () => switchTab("history"));
   v.querySelector("#edit-save").addEventListener("click", saveEdit);
@@ -942,8 +996,8 @@ function renderDecks() {
     const n = S.gamesForDeck(d.id).length;
     if (editingDeck === d.id) return `<div data-editrow="${d.id}">${deckEditShell(d)}</div>`;
     return `<div class="deck-row" data-deck="${d.id}">
-      ${artImg(d.art, "art", artPosOf(d))}
-      <div class="deck-info"><div class="name">${deckTitle(d)}</div><div class="theme" style="display:flex;align-items:center;gap:6px">${ciPips(deckCI(d))} ${esc(d.theme || "—")} · ${n} games</div></div>
+      ${artCI(d, "art", artPosOf(d))}
+      <div class="deck-info"><div class="name">${deckTitle(d)}</div><div class="theme">${esc(d.theme || "—")} · ${n} games</div></div>
       <div class="deck-acts"><button class="icon-btn" data-edit="${d.id}">✎</button>
         <button class="icon-btn" data-del="${d.id}" ${n ? "disabled title='Has games — cannot delete'" : ""}>🗑</button></div>
     </div>`;
@@ -1033,7 +1087,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
     <div class="ac-wrap">
       <div class="primary-head" style="display:flex;align-items:center;gap:8px">
         <input class="primary-input" type="text" placeholder="Commander…" value="${esc(v.commander)}" autocomplete="off" style="flex:1" />
-        <span class="art-slot">${v.art ? artImg(v.art, "art art-sm") : ""}</span>
+        <span class="art-slot">${frameArt(artImg(v.art, "art art-sm"), v.ci, true)}</span>
         ${showPips ? `<span class="pips-slot">${ciPips(v.ci)}</span>` : ""}
       </div>
       <div class="ac-list primary-list" hidden></div>
@@ -1047,7 +1101,9 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
   const secondSlot = mount.querySelector(".second-slot");
 
   const emit = () => onChange({ ...v, ci: v.ci.slice() });
-  const refreshPips = () => { v.ci = SF.mergeCI(v.baseCi, v.ci2); if (pipsSlot) pipsSlot.innerHTML = ciPips(v.ci); };
+  // re-frame the primary art with the current merged CI (ring replaces the old inline pips)
+  const renderArtSlot = () => { artSlot.innerHTML = v.art ? frameArt(artImg(v.art, "art art-sm"), v.ci, true) : ""; };
+  const refreshPips = () => { v.ci = SF.mergeCI(v.baseCi, v.ci2); if (pipsSlot) pipsSlot.innerHTML = ciPips(v.ci); renderArtSlot(); };
 
   function renderList(el, names, onPick) {
     if (!names.length) { el.hidden = true; el.innerHTML = ""; return; }
@@ -1063,8 +1119,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
     const c = await SF.getCard(name);
     if (c) { v.art = c.art; v.baseCi = c.ci; v.second = c.second; }
     if (!v.second) { v.commander2 = null; v.art2 = null; v.ci2 = []; }   // new primary can't pair → drop any old partner
-    artSlot.innerHTML = v.art ? artImg(v.art, "art art-sm") : "";
-    refreshPips(); renderSecond(); emit();
+    refreshPips(); renderSecond(); emit();   // refreshPips re-frames the art slot
   }
   async function pickSecond(name) {
     v.commander2 = name;
@@ -1080,7 +1135,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
       <div class="second-pick"><div class="second-label">${SECOND_LABEL[v.second.type] || "Second"}</div>
         <div class="ac-wrap" style="display:flex;align-items:center;gap:8px">
           <input class="second-input" type="text" placeholder="${SECOND_LABEL[v.second.type] || "Second card"}…" value="${esc(v.commander2 || "")}" autocomplete="off" style="flex:1" />
-          <span class="art-slot2">${v.art2 ? artImg(v.art2, "art art-sm") : ""}</span>
+          <span class="art-slot2">${frameArt(artImg(v.art2, "art art-sm"), v.ci2, true)}</span>
           ${v.commander2 ? '<button class="clear-x" title="Clear">✕</button>' : ""}
           <div class="ac-list second-list" hidden></div>
         </div></div>`;
@@ -1105,7 +1160,7 @@ function makePicker(mount, initial = {}, onChange = () => {}, opts = {}) {
     SF.getCard(v.commander).then(async c => {
       if (!c) return;
       v.second = c.second; v.baseCi = c.ci;
-      if (!v.art) { v.art = c.art; artSlot.innerHTML = v.art ? artImg(v.art, "art art-sm") : ""; }
+      if (!v.art) v.art = c.art;   // refreshPips() below re-frames the art slot
       if (v.commander2) { const c2 = await SF.getCard(v.commander2); v.ci2 = c2?.ci || []; if (!v.art2) v.art2 = c2?.art || null; }
       refreshPips(); renderSecond();
     });

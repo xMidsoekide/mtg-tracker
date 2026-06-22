@@ -37,6 +37,14 @@
   .tile.hero { grid-column: 1 / -1; background: linear-gradient(135deg, #1d2330, #171a21); }
   .tile.hero .value { font-size: 34px; }
   .pos { color: var(--good); } .neg { color: var(--bad); }
+  /* sparkline + hover/hold chip */
+  .spark-wrap { position: relative; touch-action: none; }
+  .spark-wrap .spark-hit { cursor: pointer; }
+  .spark-chip { position: absolute; bottom: 100%; margin-bottom: 4px; transform: translateX(-50%);
+    background: var(--surface-2); border: 1px solid var(--line); color: var(--text);
+    font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 7px; white-space: nowrap;
+    pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 2; }
+  .spark-chip.show { opacity: 1; }
 
   .section-head { display:flex; align-items:center; justify-content:space-between; margin: 18px 2px 9px; }
   .section-head h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
@@ -186,6 +194,17 @@
   .lb-row .art, .deck-row .art { margin-right:2px; }
   .art-slot:empty, .art-slot2:empty { display:none; }
   .deck-hero-art { width:100%; height:120px; object-fit:cover; object-position:50% 28%; border-radius:var(--r); margin:8px 0 4px; }
+  /* colour-identity ring (frames the art instead of inline pips) — inner art shrinks so the
+     framed footprint stays ~equal to the bare art and rows keep aligning. */
+  .ci-frame { display:inline-flex; flex:0 0 auto; padding:2.5px; border-radius:11px; line-height:0; }
+  .lb-row .ci-frame { margin-right:2px; }
+  .ci-frame > .art { width:37px; height:37px; border-radius:8px; margin:0; }
+  .ci-frame.sm { padding:2px; border-radius:8px; }
+  .ci-frame.sm > .art { width:26px; height:26px; border-radius:6px; }
+  .ci-frame.banner { display:block; padding:2.5px; border-radius:calc(var(--r) + 2px); margin:8px 0 4px; }
+  .ci-frame.banner > .deck-hero-art { margin:0; display:block; }
+  .ci-frame.rec { display:block; padding:2px; border-radius:9px; margin-bottom:7px; }
+  .ci-frame.rec > .recent-art { margin:0; display:block; }
   /* art focal-point tuner (deck editor) */
   .art-tune { margin:4px 0 2px; }
   .tune-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:7px; }
