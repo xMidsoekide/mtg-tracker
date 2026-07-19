@@ -132,20 +132,22 @@ function heroSpark(points, w = 150, h = 40) {
     `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
        style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
        data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
-  // current form as a direct end-label near the last dot. The label is right-anchored and
-  // ~20% of the plot wide, so "above" or "below" is only clear if no nearby geometry — the
-  // trailing dots and the incoming line — sits there too (a rising tail fills the space
-  // below-left, a falling tail the space above-left). Test both spots against the actual
-  // pixel positions and take the clear one; if neither is clear, take the emptier one.
-  const last = points.at(-1), lastY = Y(last.v), n = points.length;
-  const nearby = [];                                     // y-positions under the label's span
-  points.forEach((p, i) => { if (i / (n - 1) >= 0.78) nearby.push(Y(p.v)); });
-  nearby.push((Y(points.at(-2).v) + lastY) / 2);         // incoming segment, approximated by its midpoint
+  // Current form label, pinned to the top-right or bottom-right corner of the box —
+  // whichever has more clearance. Hugging the last dot doesn't work in a 40px-tall plot:
+  // rolling-form curves cluster, so the spots right above/below the dot are usually
+  // occupied by the incoming line and neighbouring dots. The corner check samples the
+  // real geometry (line segments + dots) across the label's span, plus the dotted zero
+  // baseline, so the label lands in the emptier corner and stays put.
+  const last = points.at(-1), n = points.length;
+  const nearby = [Y(0)];                                 // y-positions inside the label's span (rightmost ~28%)
+  for (let i = 1; i < n; i++) {
+    const x0 = (i - 1) / (n - 1), x1 = i / (n - 1);
+    for (let t = 0; t <= 4; t++) {
+      if (x0 + (x1 - x0) * t / 4 >= 0.72) nearby.push(Y(points[i - 1].v) + (Y(points[i].v) - Y(points[i - 1].v)) * t / 4);
+    }
+  }
   const room = ly => Math.min(...nearby.map(y => Math.abs(y - ly)));
-  const fits = ly => ly >= 8 && ly <= h - 8 && room(ly) >= 10;
-  const above = lastY - 14, below = lastY + 14;
-  const labelY = fits(above) ? above : fits(below) ? below
-    : (above >= 8 && (below > h - 8 || room(above) >= room(below)) ? above : below);
+  const labelY = room(8) >= room(h - 8) ? 8 : h - 8;
   const now = `<span class="spark-now" style="top:${(labelY / h * 100).toFixed(2)}%;color:${heroCol(last.v)}">${rateVs(last.v)}</span>`;
   return `<div class="spark-wrap" style="height:${h}px">
     <div class="spark-chip"></div>
