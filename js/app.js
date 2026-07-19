@@ -568,7 +568,7 @@ function renderRivals() {
 function openRival(pid) {
   const name = S.playerById(pid)?.name || pid;
   const theirGames = allGames().filter(g => M.seatOf(g, pid));
-  const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating · in ${theirGames.length} game${theirGames.length === 1 ? "" : "s"} with you`, false);
+  const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating`, false);
   $("#view-rival").innerHTML = `<button class="back" id="rival-back">‹ Rivals</button>${ov.html}`;
   $("#rival-back").addEventListener("click", () => history.back());
   wireSpark($("#view-rival"), ov.series);
@@ -601,15 +601,6 @@ function setPodSize(n) {
   if (draft.mySeat > n) draft.mySeat = n;
   renderLog();
 }
-/* a player's most recently played (still-existing) deck — prefill when they're picked */
-function latestDeckOf(pid) {
-  for (const g of allGames().sort((x, y) => y.date.localeCompare(x.date) || String(y.id).localeCompare(String(x.id)))) {
-    const s = M.seatOf(g, pid);
-    if (s?.deckId && S.deckById(s.deckId)) return S.deckById(s.deckId);
-  }
-  return null;
-}
-
 function repeatLastPod() {
   syncDraftFromDom();
   // latest by date (insertion order lies after an import/backfill)
@@ -690,19 +681,6 @@ function renderQuickLog() {
   v.querySelector("#seat-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; draft.mySeat = +c.dataset.seat; v.querySelectorAll("#seat-choice .chip").forEach(x => x.classList.toggle("on", x === c)); });
   v.querySelector("#place-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; draft.myPlacement = +c.dataset.place; v.querySelectorAll("#place-choice .chip").forEach(x => x.classList.toggle("on", x === c)); });
   v.querySelectorAll(".opp-place").forEach((sel, i) => sel.addEventListener("change", () => draft.opponents[i].placement = sel.value ? +sel.value : null));
-  // picking a friend prefills their most recent deck — the common case in a fixed group
-  v.querySelectorAll(".opp-player").forEach(sel => sel.addEventListener("change", () => {
-    const i = +sel.closest(".opp-block").dataset.i;
-    const o = draft.opponents[i];
-    o.playerId = sel.value;
-    if (sel.value && !(o.commander || "").trim()) {
-      const d = latestDeckOf(sel.value);
-      if (d) {
-        Object.assign(o, { commander: d.commander, commander2: d.commander2 || null, art: d.art || null, art2: d.art2 || null, ci: d.ci || [] });
-        renderQuickLog();
-      }
-    }
-  }));
   v.querySelectorAll(".opp-picker").forEach(mount => {
     const i = +mount.dataset.i;
     makePicker(mount, draft.opponents[i], upd => {
@@ -907,8 +885,12 @@ window.addEventListener("popstate", () => {
 document.querySelector("nav.tabbar").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) navForward(() => switchTab(b.dataset.tab));
 });
-$("#sync-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));
-$("#settings-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));   // settings shouldn't hide behind the cloud icon
+// cloud = sync status + tap-to-sync; gear = settings. (Both went to settings briefly — redundant.)
+$("#sync-btn").addEventListener("click", () => {
+  if (!SYNC.isConfigured()) return navForward(() => { renderSettings(); showView("view-settings"); });  // onboarding
+  toast("Syncing…"); syncNow();
+});
+$("#settings-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));
 
 /* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock, so the
    debounced push otherwise never fires). We deliberately do NOT auto-pull on focus or on a timer —
@@ -940,10 +922,7 @@ function startLive() {
 function liveAdd(playerId) {
   const g = S.getActive();
   const p = playerId ? S.playerById(playerId) : null;
-  const d = playerId ? latestDeckOf(playerId) : null;   // prefill their most recent deck
-  g.participants.push({ uid: uid(), playerId: playerId || null, name: p ? p.name : "Guest",
-    commander: d?.commander || "", commander2: d?.commander2 || null,
-    art: d?.art || null, art2: d?.art2 || null, ci: d?.ci || [], second: null, deckId: null });
+  g.participants.push({ uid: uid(), playerId: playerId || null, name: p ? p.name : "Guest", commander: "", commander2: null, art: null, art2: null, ci: [], second: null, deckId: null });
   saveActive(g); renderLog();
 }
 function liveRemove(u) { const g = S.getActive(); g.participants = g.participants.filter(p => p.uid !== u); saveActive(g); renderLog(); }

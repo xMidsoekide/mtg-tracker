@@ -13,7 +13,7 @@
      "from the network" — the third cache layer that kept re-creating version skew. no-cache
      revalidates with ETags, so unchanged files are still cheap 304s.
    Bump VERSION whenever the shell changes so old caches are cleared on activate. */
-const VERSION = "v19";
+const VERSION = "v20";
 const CACHE = `mtg-tracker-${VERSION}`;
 
 const PRECACHE = [
