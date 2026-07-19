@@ -331,7 +331,7 @@ function renderDash() {
 const METRICS = [
   { key:"finishVsAvg", label:"Finish rating", bar:"diverge", fmt:d=>rate(d.avgNorm) },
   { key:"actualWR",    label:"Win rate",            bar:"abs",     fmt:d=>pct(d.actualWR) },
-  { key:"volatility",  label:"Swinginess",          bar:"relLow",  fmt:d=>d.volatility==null?"–":d.volatility.toFixed(2) },
+  { key:"volatility",  label:"Swinginess",          bar:"relLow",  minN:5, fmt:d=>d.volatility==null?"–":d.volatility.toFixed(2) },   // stdev of <5 samples is noise
   { key:"games",       label:"Games played",        bar:"relHigh", neutral:true, fmt:d=>String(d.games) },
 ];
 
@@ -359,7 +359,7 @@ const placeColor = (p, pod) => {
 };
 
 function metricSection(m) {
-  let rows = deckRows(podFilter).filter(d => d.games && d[m.key] != null);
+  let rows = deckRows(podFilter).filter(d => d.games && d[m.key] != null && (!m.minN || d.scored >= m.minN));
   if (!rows.length) return "";
   rows.sort((a, b) => (a[m.key] - b[m.key]) * (m.bar === "relLow" ? 1 : -1));
   const vals = rows.map(d => d[m.key]);
@@ -396,21 +396,6 @@ function metricSection(m) {
 
   return `<div class="cmp-metric"><div class="cmp-h"><h3>${m.label}</h3></div>
     <div class="rank-list">${list}</div></div>`;
-}
-
-function renderLeaders() {
-  const played = deckRows(0).filter(d => d.games);
-  if (!played.length) return "";
-  const extreme = (key, dir) => played.filter(d => d[key] != null).reduce((b, x) => b == null || (x[key] - b[key]) * dir > 0 ? x : b, null);
-  const card = (icon, label, d, fmt) => d ? `<div class="leader"><div class="lt">${icon} ${label}</div><div class="ln">${esc(shortName(d.commander))}</div><div class="lv">${fmt(d)}</div></div>` : "";
-  const html = [
-    card("🎯","Best finisher",    extreme("avgNorm", +1),      d => rate(d.avgNorm)),
-    card("🏆","Best win rate",    extreme("actualWR", +1),     d => pct(d.actualWR)),
-    card("🔁","Most played",      extreme("games", +1),        d => `${d.games} games`),
-    card("🛡","Steadiest",        extreme("volatility", -1),   d => d.volatility.toFixed(2)),
-    card("🎲","Swingiest",        extreme("volatility", +1),   d => d.volatility.toFixed(2)),
-  ].filter(Boolean).join("");
-  return `<div class="section-head"><h2>Leaders</h2></div><div class="leaders">${html}</div>`;
 }
 
 /* shared: list of diverging finish-vs-average bars (items: {label, sub, value}) */
@@ -454,7 +439,7 @@ function renderColorSection() {
 function renderCompare() {
   const has3p = allGames().some(g => g.seats.length === 3);
   if (podFilter === 3 && !has3p) podFilter = 0;   // 3P filter is gone if its last game was removed
-  $("#view-compare").innerHTML = renderLeaders() + `
+  $("#view-compare").innerHTML = `
     <div class="section-head"><h2>Compare decks</h2>
       <div class="seg" id="podseg">
         <button data-pod="0" class="${podFilter === 0 ? "on" : ""}">All</button>
@@ -510,7 +495,7 @@ function openDeck(deckId) {
       <div class="tile hero"><div class="label">Finish rating</div><div class="value ${wrCls}">${rate(a.avgNorm)}</div>
         <div class="sub">${a.games} games · won ${pct(a.actualWR)}</div></div>
       <div class="tile"><div class="label">Avg place</div><div class="value">${a.avgPlace == null ? "–" : a.avgPlace.toFixed(1)}</div></div>
-      <div class="tile"><div class="label">Swinginess</div><div class="value">${a.volatility == null ? "–" : a.volatility.toFixed(2)}</div>${a.volatility == null ? '<div class="sub">Need 2+ games</div>' : ""}</div>
+      <div class="tile"><div class="label">Swinginess</div><div class="value">${a.scored < 5 || a.volatility == null ? "–" : a.volatility.toFixed(2)}</div>${a.scored < 5 ? '<div class="sub">Need 5+ games</div>' : ""}</div>
     </div>
     <div class="chart-card"><h3>Placement distribution</h3><div class="dist">${bars}</div></div>
     <div class="section-head"><h2>Games (${gs.length})</h2></div>
@@ -583,7 +568,7 @@ function renderRivals() {
 function openRival(pid) {
   const name = S.playerById(pid)?.name || pid;
   const theirGames = allGames().filter(g => M.seatOf(g, pid));
-  const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating`, false);
+  const ov = overviewBlock(theirGames, pid, `${esc(name)}'s finish rating · in ${theirGames.length} game${theirGames.length === 1 ? "" : "s"} with you`, false);
   $("#view-rival").innerHTML = `<button class="back" id="rival-back">‹ Rivals</button>${ov.html}`;
   $("#rival-back").addEventListener("click", () => history.back());
   wireSpark($("#view-rival"), ov.series);
@@ -923,6 +908,7 @@ document.querySelector("nav.tabbar").addEventListener("click", e => {
   const b = e.target.closest("button"); if (b) navForward(() => switchTab(b.dataset.tab));
 });
 $("#sync-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));
+$("#settings-btn").addEventListener("click", () => navForward(() => { renderSettings(); showView("view-settings"); }));   // settings shouldn't hide behind the cloud icon
 
 /* flush a pending push when the app is backgrounded/closed (mobile freezes JS on lock, so the
    debounced push otherwise never fires). We deliberately do NOT auto-pull on focus or on a timer —
