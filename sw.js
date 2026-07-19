@@ -9,7 +9,7 @@
    - Cross-origin (Scryfall images, api.github.com gist sync) is NOT intercepted: those need
      live network + auth, and caching them here would only get in the way.
    Bump VERSION whenever the shell changes so old caches are cleared on activate. */
-const VERSION = "v13";
+const VERSION = "v14";
 const CACHE = `mtg-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -38,6 +38,11 @@ self.addEventListener("activate", e => {
       .then(keys => Promise.all(keys.filter(k => k !== CACHE).map(k => caches.delete(k))))
       .then(() => self.clients.claim())
   );
+});
+
+// settings screen asks which shell version this device actually runs
+self.addEventListener("message", e => {
+  if (e.data === "version") e.ports[0]?.postMessage(VERSION);
 });
 
 self.addEventListener("fetch", e => {

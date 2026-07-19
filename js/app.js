@@ -804,8 +804,16 @@ function renderSettings() {
     <div class="set-card"><h3>Backup</h3>
       <p>Your data lives in this browser. Export a JSON copy, or import one to restore / move devices.</p>
       <div class="row-actions"><button class="btn-ghost" id="export-btn">Export</button><button class="btn-ghost" id="import-btn">Import</button></div>
-      <textarea id="io-box" placeholder="Paste JSON here to import…" style="margin-top:10px;min-height:90px"></textarea></div>`;
+      <textarea id="io-box" placeholder="Paste JSON here to import…" style="margin-top:10px;min-height:90px"></textarea></div>
+    <p class="hint" id="app-version" style="text-align:center"></p>`;
   const v = $("#view-settings");
+  // shell version, asked from the controlling service worker — shows which deploy this device runs
+  const swc = navigator.serviceWorker?.controller;
+  if (swc) {
+    const ch = new MessageChannel();
+    ch.port1.onmessage = e => { v.querySelector("#app-version").textContent = `App shell ${e.data}`; };
+    swc.postMessage("version", [ch.port2]);
+  }
   v.querySelector("#set-back").addEventListener("click", () => history.back());
   v.querySelector("#min-choice").addEventListener("click", e => {
     const c = e.target.closest(".chip"); if (!c) return;

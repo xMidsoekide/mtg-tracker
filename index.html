@@ -342,8 +342,18 @@
   <script type="module" src="js/app.js"></script>
   <script>
     // Register the service worker (offline + installable). Ignored on unsupported/insecure origins.
-    if ("serviceWorker" in navigator)
+    if ("serviceWorker" in navigator) {
       addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
+      // When a freshly-installed SW takes over (skipWaiting + claim), this page may have been
+      // rendered from the previous version — reload once so what's on screen is never a
+      // half-updated shell. The flag prevents any reload loop.
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloaded) return;
+        reloaded = true;
+        location.reload();
+      });
+    }
   </script>
 </body>
 </html>
