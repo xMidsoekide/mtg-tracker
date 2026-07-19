@@ -1173,8 +1173,13 @@ function renderEdit() {
     const art = isMe ? myDeck?.art : (s.art || oppDeck?.art);
     const art2 = isMe ? (myDeck?.art2 || null) : (s.art2 || oppDeck?.art2 || null);
     const ci = isMe ? (myDeck?.ci || []) : (s.ci || oppDeck?.ci || []);
+    // a deckId with no surviving deck (removed on another device) gets an explicit
+    // placeholder option — otherwise the first deck silently preselects and Save
+    // would reassign the game to an unrelated deck
+    const missingDeck = isMe && s.deckId && !S.deckById(s.deckId)
+      ? `<option value="${esc(s.deckId)}" selected>(deleted deck)</option>` : "";
     const who = isMe
-      ? `<div class="part-name">Me</div><select class="ed-deck" style="width:100%">${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select>`
+      ? `<div class="part-name">Me</div><select class="ed-deck" style="width:100%">${missingDeck}${myDeckOpts.replace(`value="${s.deckId}"`, `value="${s.deckId}" selected`)}</select>`
       : `<select class="ed-player"><option value="">Guest</option>${roster.map(p => `<option value="${p.id}" ${p.id === s.playerId ? "selected" : ""}>${esc(p.name)}</option>`).join("")}</select>
          <div class="ed-picker" data-i="${i}"></div>`;
     return `<div class="part-row ${isMe ? "me" : ""}" data-i="${i}">

@@ -61,7 +61,11 @@ self.addEventListener("fetch", e => {
 
   e.respondWith(
     fetch(request, { cache: "no-cache" })   // revalidate with the server; never trust max-age
-      .then(r => { caches.open(CACHE).then(c => c.put(request, r.clone())); return r; })
+      .then(r => {
+        // only cache good responses — a transient 500 must never become the offline copy
+        if (r.ok) e.waitUntil(caches.open(CACHE).then(c => c.put(request, r.clone())));
+        return r;
+      })
       .catch(() => caches.match(request).then(r => r || (request.mode === "navigate" ? caches.match("index.html") : Response.error())))
   );
 });

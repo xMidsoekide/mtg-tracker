@@ -137,7 +137,7 @@ test("form: empty games", () => {
 test("form: newest-first recent + streak", () => {
   // dates ascending; form should return newest first
   const games = [
-    { ...game("g1", { placement: 5 }), date: "2026-01-01" },
+    { ...game("g1", { placement: 5, podSize: 5 }), date: "2026-01-01" },   // real pod: 5th of 5 (placement 5 in a 1-seat game is now capped to a win)
     { ...game("g2", { placement: 1 }), date: "2026-02-01" },
     { ...game("g3", { placement: 1 }), date: "2026-03-01" },
   ];
@@ -400,6 +400,56 @@ test("bogeyDecks: tying counts as a tie, not belowMe", () => {
   assert.equal(b.Foo.aboveMe, 0);
   assert.equal(b.Foo.belowMe, 0);
   assert.equal(b.Foo.ties, 1);
+});
+
+/* ---------- guards: null my-placement, missing me seat, impossible placements ---------- */
+test("headToHead: my null placement makes the comparison unknown, not a win", () => {
+  const g = game("g", { placement: null, opps: [{ playerId: "jordi", placement: 1 }] });
+  const h = headToHead([g]);
+  assert.equal(h.jordi.iAboveThem, 0);
+  assert.equal(h.jordi.theyAboveMe, 0);
+  assert.equal(h.jordi.unknown, 1);
+  assert.equal(h.jordi.together, 1);
+});
+
+test("bogeyDecks: my null placement counts as unknown", () => {
+  const g = game("g", { placement: null, opps: [{ commander: "Foo", placement: 1 }] });
+  const b = bogeyDecks([g]);
+  assert.equal(b.Foo.aboveMe, 0);
+  assert.equal(b.Foo.belowMe, 0);
+  assert.equal(b.Foo.unknown, 1);
+});
+
+test("games without a 'me' seat don't crash aggregations", () => {
+  const noMe = { id: "gx", date: "2026-01-01", seats: [{ playerId: "a", placement: 1 }, { playerId: "b", placement: 2 }] };
+  assert.doesNotThrow(() => headToHead([noMe]));
+  assert.doesNotThrow(() => bogeyDecks([noMe]));
+  assert.doesNotThrow(() => seatBreakdown([noMe]));
+  assert.doesNotThrow(() => form([noMe]));
+  assert.deepEqual(form([noMe]).recent, []);   // not scored as a loss — the game simply isn't mine
+});
+
+test("seatBreakdown: placement-less games don't pollute seat stats", () => {
+  const games = [
+    game("g1", { seat: 1, placement: 1, podSize: 4 }),
+    game("g2", { seat: 1, placement: null, podSize: 4 }),   // logged but no finish recorded
+  ];
+  const sb = seatBreakdown(games);
+  assert.equal(sb[1].games, 2);
+  assert.equal(sb[1].avgPlace, 1);            // only the scored game
+  assert.equal(sb[1].finishVsAvg, 0.5);       // no NaN / >max inflation from the null game
+  assert.equal(sb[1].wins, 1);
+});
+
+test("placeInfo/effRank: impossible placements are capped at pod size (stay zero-sum)", () => {
+  // editor allows all four seats set to 4th in a 4-pod
+  const g = { id: "g", date: "2026-01-01", seats: [
+    { playerId: "me", placement: 4 }, { playerId: "a", placement: 4 },
+    { playerId: "b", placement: 4 }, { playerId: "c", placement: 4 }] };
+  assert.equal(placeInfo(g, "me").start, 1);   // 4-way tie can only start at 1st
+  assert.equal(effRank(g, "me"), 2.5);
+  const total = ["me", "a", "b", "c"].reduce((s, pid) => s + normalizedScore(effRank(g, pid), 4), 0);
+  assert.ok(Math.abs(total - 2) < 1e-9);
 });
 
 /* ---------- real seed data smoke test ---------- */

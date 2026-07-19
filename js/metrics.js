@@ -26,7 +26,10 @@ export function placeInfo(game, playerId = "me") {
   const ranked = game.seats.filter((s) => s.placement != null);
   const better = ranked.filter((s) => s.placement < p).length;
   const group = ranked.filter((s) => s.placement === p).length;  // includes self
-  return { start: Math.max(p, better + 1), tied: group > 1, group };
+  // cap: a tie group must fit inside the pod (the editor allows e.g. four 4th places —
+  // without the cap that scores as rank 5.5 and a -5.0 rating)
+  const start = Math.min(Math.max(p, better + 1), game.seats.length - group + 1);
+  return { start, tied: group > 1, group };
 }
 
 export function effRank(game, playerId = "me") {
@@ -94,7 +97,7 @@ export function aggregateDeck(games, playerId = "me") {
 /* ---------- form ---------- */
 /* Newest-first W/L list (last n games) + current streak. */
 export function form(games, n = 5) {
-  const sorted = [...games].sort((a, b) => b.date.localeCompare(a.date));
+  const sorted = games.filter(mySeat).sort((a, b) => b.date.localeCompare(a.date));
   const recent = sorted.slice(0, n).map((g) => (won(effRank(g)) ? "W" : "L"));
 
   let streak = { type: null, len: 0 };
@@ -127,12 +130,13 @@ export function pilotOverall(games, playerId = "me") {
 export function seatBreakdown(games) {
   const out = {};
   for (let s = 1; s <= 5; s++) {
-    const inSeat = games.filter((g) => mySeat(g).seat === s);
-    const placements = inSeat.map((g) => effRank(g));
-    const exps = inSeat.map((g) => expectedWR(podSize(g)));
-    const norms = inSeat.map((g) => normalizedScore(effRank(g), podSize(g)));
+    const inSeat = games.filter((g) => mySeat(g)?.seat === s);
+    const scoredGames = inSeat.filter((g) => effRank(g) != null);   // placement-less games would poison the means
+    const placements = scoredGames.map((g) => effRank(g));
+    const exps = scoredGames.map((g) => expectedWR(podSize(g)));
+    const norms = scoredGames.map((g) => normalizedScore(effRank(g), podSize(g)));
     const wins = placements.filter(won).length;
-    const actualWR = inSeat.length ? wins / inSeat.length : null;
+    const actualWR = scoredGames.length ? wins / scoredGames.length : null;
     const expWR = mean(exps);
     const avgNorm = mean(norms);
     out[s] = {
@@ -153,7 +157,9 @@ export function seatBreakdown(games) {
 export function headToHead(games) {
   const out = {};
   for (const g of games) {
-    const myPlace = mySeat(g).placement;
+    const me = mySeat(g);
+    if (!me) continue;                                 // importable games without a "me" seat aren't mine to score
+    const myPlace = me.placement;
     for (const s of g.seats) {
       if (s.playerId == null || s.playerId === "me") continue;
       const h = (out[s.playerId] ??= {
@@ -165,8 +171,8 @@ export function headToHead(games) {
         _myPlaces: [],
       });
       h.together++;
-      h._myPlaces.push(myPlace);
-      if (s.placement == null) h.unknown++;
+      if (myPlace != null) h._myPlaces.push(myPlace);
+      if (s.placement == null || myPlace == null) h.unknown++;   // either side unrecorded -> no verdict
       else if (s.placement === myPlace) h.ties++;      // knocked out together — neither beat the other
       else if (s.placement < myPlace) h.theyAboveMe++; // lower placement = better finish
       else h.iAboveThem++;
@@ -186,14 +192,16 @@ export function headToHead(games) {
 export function bogeyDecks(games) {
   const out = {};
   for (const g of games) {
-    const myPlace = mySeat(g).placement;
+    const me = mySeat(g);
+    if (!me) continue;
+    const myPlace = me.placement;
     for (const s of g.seats) {
       if (s.playerId === "me") continue;
       const key = s.deckId ?? s.commander;
       if (key == null) continue;
       const b = (out[key] ??= { faced: 0, aboveMe: 0, belowMe: 0, ties: 0, unknown: 0 });
       b.faced++;
-      if (s.placement == null) b.unknown++;
+      if (s.placement == null || myPlace == null) b.unknown++;
       else if (s.placement === myPlace) b.ties++;
       else if (s.placement < myPlace) b.aboveMe++;
       else b.belowMe++;
