@@ -183,8 +183,8 @@
   .h2h .rec { font-size:13px; color:var(--muted); }
   .h2h .wld { display:flex; height:10px; border-radius:5px; overflow:hidden; margin-top:10px; background:var(--surface-2); }
   .h2h .wld span { display:block; }
-  .h2h .legend { display:flex; gap:14px; margin-top:7px; font-size:11.5px; color:var(--muted); }
-  .h2h .legend i { font-style:normal; }
+  .h2h .legend { display:flex; flex-wrap:wrap; column-gap:12px; row-gap:3px; margin-top:7px; font-size:11.5px; color:var(--muted); }
+  .h2h .legend i { font-style:normal; white-space:nowrap; }  /* wrap between entries, never inside one */
   .dot { display:inline-block; width:8px; height:8px; border-radius:2px; margin-right:4px; vertical-align:middle; }
 
   /* settings */
