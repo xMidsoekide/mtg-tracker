@@ -278,6 +278,11 @@
 
   .part-drag { touch-action:none; cursor:grab; color:var(--muted); font-size:20px; padding:4px 6px; user-select:none; }
   .part-row.dragging { opacity:.85; border-color:var(--accent); background:var(--surface-2); }
+  /* tie groups on the finishing-order screen (drag one row onto another to combine) */
+  .part-row.tie-target { border-color:var(--warn); box-shadow:0 0 0 1.5px var(--warn); }
+  .part-row.tied { border-color:var(--warn); }
+  .part-row.tied-cont { margin-top:-6px; border-top-left-radius:0; border-top-right-radius:0; border-top-style:dashed; }
+  .part-row.tied:has(+ .tied-cont) { border-bottom-left-radius:0; border-bottom-right-radius:0; }
   .game-item.tap { cursor:pointer; }
   .ed-nums { display:flex; flex-direction:column; gap:6px; }
   .ed-nums label { font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px; }

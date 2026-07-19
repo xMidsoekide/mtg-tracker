@@ -14,6 +14,26 @@ export const expectedWR = (podSize) => 1 / podSize;
 export const seatOf = (game, playerId = "me") => game.seats?.find((s) => s.playerId === playerId);
 export const mySeat = (game) => seatOf(game, "me");
 
+/* Ties: equal stored placements = knocked out together. Effective rank averages the positions
+   the tie group occupies (two tied after 1st -> both 2.5), which keeps each pod's total score
+   constant — ties inflate nobody. Shared 1st -> 1.5, i.e. not a win.
+   The stored placement is the base (opponents often have no recorded finish, so it can't be
+   derived from order alone), but is bumped when known better finishers prove it understated —
+   1-2-2-3 and 1-2-2-4 both rank the last player 4th. */
+export function placeInfo(game, playerId = "me") {
+  const p = seatOf(game, playerId)?.placement;
+  if (p == null) return { start: null, tied: false, group: 0 };
+  const ranked = game.seats.filter((s) => s.placement != null);
+  const better = ranked.filter((s) => s.placement < p).length;
+  const group = ranked.filter((s) => s.placement === p).length;  // includes self
+  return { start: Math.max(p, better + 1), tied: group > 1, group };
+}
+
+export function effRank(game, playerId = "me") {
+  const { start, group } = placeInfo(game, playerId);
+  return start == null ? null : start + (group - 1) / 2;
+}
+
 /* mean/stdev return null on empty (or <2 for stdev) so callers never see NaN. */
 const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
 
@@ -33,7 +53,7 @@ const podSize = (game) => game.seats.length;
    often have no recorded finish, so the two can differ. */
 export function aggregateDeck(games, playerId = "me") {
   const present = games
-    .map((g) => ({ seat: seatOf(g, playerId), size: podSize(g), date: g.date }))
+    .map((g) => ({ seat: seatOf(g, playerId), eff: effRank(g, playerId), size: podSize(g), date: g.date }))
     .filter((m) => m.seat);
   const total = present.length;
   if (!total) {
@@ -43,11 +63,11 @@ export function aggregateDeck(games, playerId = "me") {
     };
   }
 
-  const scored = present.filter((m) => m.seat.placement != null);
+  const scored = present.filter((m) => m.eff != null);
   const n = scored.length;
-  const placements = scored.map((m) => m.seat.placement);
-  const norms = scored.map((m) => normalizedScore(m.seat.placement, m.size));
-  const wins = placements.filter(won).length;
+  const placements = scored.map((m) => m.eff);
+  const norms = scored.map((m) => normalizedScore(m.eff, m.size));
+  const wins = placements.filter(won).length;   // eff 1 = sole 1st; a shared 1st (1.5) isn't a win
   const actualWR = n ? wins / n : null;
   const expWR = n ? mean(scored.map((m) => expectedWR(m.size))) : null;
   const avgNorm = mean(norms);
@@ -75,7 +95,7 @@ export function aggregateDeck(games, playerId = "me") {
 /* Newest-first W/L list (last n games) + current streak. */
 export function form(games, n = 5) {
   const sorted = [...games].sort((a, b) => b.date.localeCompare(a.date));
-  const recent = sorted.slice(0, n).map((g) => (won(mySeat(g).placement) ? "W" : "L"));
+  const recent = sorted.slice(0, n).map((g) => (won(effRank(g)) ? "W" : "L"));
 
   let streak = { type: null, len: 0 };
   for (const r of recent) {
@@ -108,9 +128,9 @@ export function seatBreakdown(games) {
   const out = {};
   for (let s = 1; s <= 5; s++) {
     const inSeat = games.filter((g) => mySeat(g).seat === s);
-    const placements = inSeat.map((g) => mySeat(g).placement);
+    const placements = inSeat.map((g) => effRank(g));
     const exps = inSeat.map((g) => expectedWR(podSize(g)));
-    const norms = inSeat.map((g) => normalizedScore(mySeat(g).placement, podSize(g)));
+    const norms = inSeat.map((g) => normalizedScore(effRank(g), podSize(g)));
     const wins = placements.filter(won).length;
     const actualWR = inSeat.length ? wins / inSeat.length : null;
     const expWR = mean(exps);
@@ -140,12 +160,14 @@ export function headToHead(games) {
         together: 0,
         theyAboveMe: 0,
         iAboveThem: 0,
+        ties: 0,
         unknown: 0,
         _myPlaces: [],
       });
       h.together++;
       h._myPlaces.push(myPlace);
       if (s.placement == null) h.unknown++;
+      else if (s.placement === myPlace) h.ties++;      // knocked out together — neither beat the other
       else if (s.placement < myPlace) h.theyAboveMe++; // lower placement = better finish
       else h.iAboveThem++;
     }
@@ -169,9 +191,10 @@ export function bogeyDecks(games) {
       if (s.playerId === "me") continue;
       const key = s.deckId ?? s.commander;
       if (key == null) continue;
-      const b = (out[key] ??= { faced: 0, aboveMe: 0, belowMe: 0, unknown: 0 });
+      const b = (out[key] ??= { faced: 0, aboveMe: 0, belowMe: 0, ties: 0, unknown: 0 });
       b.faced++;
       if (s.placement == null) b.unknown++;
+      else if (s.placement === myPlace) b.ties++;
       else if (s.placement < myPlace) b.aboveMe++;
       else b.belowMe++;
     }

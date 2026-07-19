@@ -261,7 +261,7 @@ function recentBlock(games, pid, clickable) {
   const recent = [];
   for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
     const s = M.seatOf(g, pid); const id = s?.deckId;
-    if (id && S.deckById(id)) recent.push({ id, date: g.date, place: s.placement, pod: g.seats.length });
+    if (id && S.deckById(id)) recent.push({ id, date: g.date, pi: M.placeInfo(g, pid), pod: g.seats.length });
     if (recent.length === 3) break;
   }
   if (!recent.length) return "";
@@ -272,7 +272,7 @@ function recentBlock(games, pid, clickable) {
       ${d.art ? `<img class="recent-art" src="${esc(d.art)}" ${artPosOf(d) != null ? `style="object-position:50% ${artPosOf(d)}%"` : ""} alt="" loading="lazy" />` : ""}
       <div class="lt">${relDate(r.date)}</div>
       <div class="ln">${esc(shortName(d.commander))}</div>
-      <div class="lr"><span class="lv" style="color:${placeColor(r.place, r.pod)}">${r.place == null ? "—" : ord(r.place)}</span><span class="lp">${r.pod}P</span></div></div>`;
+      <div class="lr"><span class="lv" style="color:${placeColor(r.pi.start, r.pod)}">${placeLabel(r.pi)}</span><span class="lp">${r.pod}P</span></div></div>`;
   }).join("");
   return `<div class="section-head"><h2>Recently played</h2></div><div class="recent-grid">${cards}</div>`;
 }
@@ -325,6 +325,9 @@ const goodnessColor = f => f <= 0.5
    orange → red gradient for 3rd…last. Green is never blended into the orange (that mix goes
    yellow, which reads like the gold), so every tier stays visually distinct. Shared by
    recently-played + history. */
+/* tie-aware place text from placeInfo: "T-3rd" when knocked out together */
+const placeLabel = pi => pi.start == null ? "—" : (pi.tied ? "T-" : "") + ord(pi.start);
+
 const placeColor = (p, pod) => {
   if (p == null) return "var(--muted)";
   if (p === 1) return "var(--accent)";          // gold — the win
@@ -459,19 +462,19 @@ function openDeck(deckId) {
   const gs = myGamesForDeck(deckId).sort((a, b) => a.date.localeCompare(b.date));
   const a = M.aggregateDeck(gs);
 
-  const dist = [1, 2, 3, 4, 5].map(p => gs.filter(g => M.mySeat(g).placement === p).length);
+  const dist = [1, 2, 3, 4, 5].map(p => gs.filter(g => M.placeInfo(g).start === p).length);
   const maxD = Math.max(1, ...dist);
   const bars = dist.map((c, i) => `<div class="bar"><span class="n">${c || ""}</span>
     <div class="fill" style="height:${c / maxD * 100}%; ${c ? "" : "opacity:.25"}"></div>
     <span class="lab">${ord(i + 1)}</span></div>`).join("");
 
   const games = gs.slice().reverse().map(g => {
-    const ms = M.mySeat(g);
+    const ms = M.mySeat(g); const pi = M.placeInfo(g);
     const opp = g.seats.filter(s => s.playerId !== "me")
       .map(s => esc((s.playerId ? (S.playerById(s.playerId)?.name + ": ") : "") + seatCards(s))).join(" · ");
     return `<div class="game-item"><div class="top">
       <strong>${euDate(g.date)} · ${g.seats.length}P · seat ${ms.seat ?? "?"}</strong>
-      <span class="badge" style="color:${placeColor(ms.placement, g.seats.length)}">${ms.placement === 1 ? "1st 🏆" : ord(ms.placement)}</span></div>
+      <span class="badge" style="color:${placeColor(pi.start, g.seats.length)}">${pi.start === 1 && !pi.tied ? "1st 🏆" : placeLabel(pi)}</span></div>
       <div class="note">vs ${opp}</div>${g.notes ? `<div class="note">📝 ${esc(g.notes)}</div>` : ""}</div>`;
   }).join("");
 
@@ -517,7 +520,7 @@ function renderRivals() {
   const cards = ids.map(id => {
     const h = h2h[id]; const name = S.playerById(id)?.name || id;
     const tot = h.together || 1;
-    const w = h.iAboveThem, l = h.theyAboveMe, u = h.unknown;
+    const w = h.iAboveThem, l = h.theyAboveMe, t = h.ties, u = h.unknown;
     const seg = (n, color) => n ? `<span style="width:${n / tot * 100}%;background:${color}"></span>` : "";
     const leg = (color, label, n) => n ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
@@ -526,8 +529,8 @@ function renderRivals() {
       <div class="h2h-body">
         <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
         ${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}
-        <div class="wld">${seg(w, "var(--good)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
-        <div class="legend">${leg("var(--good)", "Beat them", w)}${leg("var(--bad)", "Lost to them", l)}${leg("var(--surface-2)", "Not recorded", u)}</div>
+        <div class="wld">${seg(w, "var(--good)")}${seg(t, "var(--warn)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
+        <div class="legend">${leg("var(--good)", "Beat them", w)}${leg("var(--warn)", "Tied", t)}${leg("var(--bad)", "Lost to them", l)}${leg("var(--surface-2)", "Not recorded", u)}</div>
       </div></div>`;
   }).join("");
 
@@ -541,7 +544,7 @@ function renderRivals() {
       const p = Math.round(b.aboveMe / b.decided * 100);
       const label = esc(shortName(b.name)) + (b.name2 ? ` <span style="color:var(--muted)">+</span> ${esc(shortName(b.name2))}` : "");
       return `<div class="lb-row"><div class="rank">${b.faced}×</div>
-        <div style="display:flex;align-items:center;gap:9px;min-width:0">${frameArt(artImg(b.art), b.ci)}<div style="min-width:0"><div class="name">${label}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
+        <div style="display:flex;align-items:center;gap:9px;min-width:0">${frameArt(artImg(b.art), b.ci)}<div style="min-width:0"><div class="name">${label}</div><div class="theme">Beat me ${b.aboveMe} of ${b.decided} recorded${b.ties ? ` · ${b.ties} tied` : ""}${b.unknown ? ` · ${b.unknown} not recorded` : ""}</div></div></div>
         <div class="metric ${p >= 50 ? "neg" : "pos"}">${p}%<small>Beat me</small></div></div>`;
     }).join("");
 
@@ -656,7 +659,7 @@ function renderQuickLog() {
     <div class="field"><label>Opponents &amp; their finish</label>${oppBlocks}</div>
     <div class="field"><label>Notes</label><textarea id="log-notes" placeholder="What decided the game?">${esc(draft.notes)}</textarea></div>
     <button class="btn-primary" id="save-game">Save game</button>
-    <p class="hint">Pick known friends to unlock head-to-head. Finishing places are optional but power the Rivals tab.</p>`;
+    <p class="hint">Pick known friends to unlock head-to-head. Finishing places are optional but power the Rivals tab. Knocked out together? Give players the same place — that counts as a tie.</p>`;
 
   const v = $("#view-log");
   v.querySelector("#start-live").addEventListener("click", startLive);
@@ -911,25 +914,35 @@ function liveAdd(playerId) {
 }
 function liveRemove(u) { const g = S.getActive(); g.participants = g.participants.filter(p => p.uid !== u); saveActive(g); renderLog(); }
 
-/* pointer-based drag reordering (works on touch + mouse, no library) */
-function makeSortable(list, onReorder) {
+/* pointer-based drag reordering (works on touch + mouse, no library).
+   With onCombine, hovering the middle of another row targets a tie-combine (highlighted)
+   instead of reordering; the top/bottom thirds of each row still reorder as before. */
+function makeSortable(list, onReorder, onCombine = null) {
   if (!list) return;
-  let drag = null;
+  let drag = null, target = null;
+  const clearTarget = () => { target?.classList.remove("tie-target"); target = null; };
   const onMove = e => {
     if (!drag) return;
     e.preventDefault();
     const others = [...list.querySelectorAll(".part-row:not(.dragging)")];
+    if (onCombine) {
+      const over = others.find(r => { const b = r.getBoundingClientRect(); return e.clientY > b.top + b.height * 0.35 && e.clientY < b.top + b.height * 0.65; });
+      if (over !== target) { clearTarget(); if (over) { target = over; target.classList.add("tie-target"); } }
+      if (target) return;   // hovering a combine target — freeze reordering under it
+    }
     const after = others.find(r => { const b = r.getBoundingClientRect(); return e.clientY < b.top + b.height / 2; });
     if (after) list.insertBefore(drag, after); else list.appendChild(drag);
   };
   const onUp = () => {
     if (!drag) return;
     drag.classList.remove("dragging");
+    const dragUid = drag.dataset.uid, targetUid = target?.dataset.uid;
+    clearTarget();
     const order = [...list.querySelectorAll(".part-row")].map(r => r.dataset.uid);
     drag = null;
     document.removeEventListener("pointermove", onMove);
     document.removeEventListener("pointerup", onUp);
-    onReorder(order);
+    if (targetUid != null) onCombine(dragUid, targetUid); else onReorder(order);
   };
   list.querySelectorAll(".part-drag").forEach(handle => handle.addEventListener("pointerdown", e => {
     e.preventDefault();
@@ -939,6 +952,52 @@ function makeSortable(list, onReorder) {
     document.addEventListener("pointerup", onUp);
   }));
 }
+/* Ties on the finishing-order screen: participants sharing a tieUid in *adjacent* rows form
+   a tie group. Anyone whose run shrinks to one row (dragged out, or a row dropped in between)
+   loses the mark — so "drag away to split" needs no special handling. */
+function normalizeTies(g) {
+  const runs = [];
+  g.participants.forEach((p, i) => {
+    const prev = g.participants[i - 1];
+    if (i && p.tieUid && p.tieUid === prev.tieUid) runs.at(-1).push(p);
+    else runs.push([p]);
+  });
+  for (const r of runs) if (r.length === 1) r[0].tieUid = null;
+}
+
+/* index of the first row of each participant's tie group -> placement = that index + 1
+   (competition style: two tied after 1st are both 2nd, the next player is 4th) */
+function tieStarts(participants) {
+  const starts = [];
+  participants.forEach((p, i) => {
+    const prev = participants[i - 1];
+    starts[i] = (i && p.tieUid && p.tieUid === prev.tieUid) ? starts[i - 1] : i;
+  });
+  return starts;
+}
+
+function liveCombine(dragUid, targetUid) {
+  liveSyncDom();
+  const g = S.getActive();
+  const d = g.participants.find(p => p.uid === dragUid);
+  const t = g.participants.find(p => p.uid === targetUid);
+  if (!d || !t || d === t) return;
+  if (d.tieUid != null && d.tieUid === t.tieUid) {   // dropped onto their own tie partner -> toggle off
+    d.tieUid = null;                                 // (a bottom tie group can't be split by dragging away)
+    normalizeTies(g);
+    saveActive(g); renderLog();
+    return;
+  }
+  t.tieUid ??= t.uid;
+  d.tieUid = t.tieUid;
+  // park the dragged player right below the target's group so the run is adjacent
+  g.participants = g.participants.filter(p => p !== d);
+  const last = g.participants.reduce((acc, p, i) => (p.tieUid === t.tieUid ? i : acc), -1);
+  g.participants.splice(last + 1, 0, d);
+  normalizeTies(g);
+  saveActive(g); renderLog();
+}
+
 function liveSyncDom() {
   const g = S.getActive(); if (!g) return;
   const v = $("#view-log");
@@ -959,7 +1018,7 @@ function liveToFinish() {
   // typed but never matched to a real card (no art / no colour identity)
   const unmatched = opps.filter(p => !p.art && !(p.ci || []).length);
   if (unmatched.length && !confirm(`Not matched to a card: ${unmatched.map(p => p.commander).join(", ")}.\nPick from the suggestions for stats to line up. Continue anyway?`)) return;
-  g.participants.forEach((p, i) => { p.turn = i + 1; });   // freeze turn order from setup order
+  g.participants.forEach((p, i) => { p.turn = i + 1; p.tieUid = null; });   // freeze turn order; ties are set on the finish screen
   g.status = "finish"; saveActive(g); renderLog();
 }
 function liveBackToSetup() { liveSyncDom(); const g = S.getActive(); g.participants.sort((a, b) => a.turn - b.turn); g.status = "setup"; saveActive(g); renderLog(); }
@@ -970,12 +1029,13 @@ function liveSave() {
   const g = S.getActive();
   const me = g.participants.find(p => p.playerId === "me");
   if (!me?.deckId) return toast("Pick your deck");
+  const starts = tieStarts(g.participants);
   const seats = g.participants.map((p, i) => {
-    if (p.playerId === "me") return { playerId: "me", deckId: p.deckId, seat: p.turn ?? null, placement: i + 1 };
+    if (p.playerId === "me") return { playerId: "me", deckId: p.deckId, seat: p.turn ?? null, placement: starts[i] + 1 };
     const cmd = (p.commander || "").trim();
     const extra = { commander2: p.commander2 || null, art: p.art || null, art2: p.art2 || null, ci: p.ci || [] };
     const deckId = (p.playerId && cmd) ? S.ensureDeck(p.playerId, cmd, extra) : null;
-    return { playerId: p.playerId || null, deckId, commander: cmd || null, commander2: p.commander2 || null, art: p.art || null, ci: p.ci || [], seat: p.turn ?? null, placement: i + 1 };
+    return { playerId: p.playerId || null, deckId, commander: cmd || null, commander2: p.commander2 || null, art: p.art || null, ci: p.ci || [], seat: p.turn ?? null, placement: starts[i] + 1 };
   });
   S.addGame({ id: S.newId("g"), date: g.date, seats, notes: (g.notes || "").trim() });
   S.clearActive(); markDirty(); toast("Game saved"); switchTab("dash");
@@ -986,9 +1046,11 @@ function renderLiveGame(g) {
   const addable = S.players().filter(p => !p.self && !g.participants.some(x => x.playerId === p.id));
   const myDeckOpts = S.myDecks().map(d => `<option value="${d.id}">${esc(d.commander)}</option>`).join("");
 
+  const starts = tieStarts(g.participants);
   const rows = g.participants.map((p, i) => {
     const isMe = p.playerId === "me";
-    const lead = setup ? `${i + 1}.` : ord(i + 1);
+    const tied = !setup && (starts[i] !== i || starts[i + 1] === i);   // in a group of 2+ (continuation, or head with a follower)
+    const lead = setup ? `${i + 1}.` : (tied ? "T-" : "") + ord(starts[i] + 1);
     const myDeck = isMe ? S.deckById(p.deckId) : null;
     const art = isMe ? myDeck?.art : p.art;
     const art2 = isMe ? (myDeck?.art2 || null) : (p.art2 || null);
@@ -1005,7 +1067,7 @@ function renderLiveGame(g) {
     }
     const rm = !setup ? "" : (isMe ? `<span class="part-rm-spacer"></span>` : `<button class="part-rm" data-rm="${p.uid}">✕</button>`);
     const name = `<div class="part-name"><span class="lead">${lead}</span>${esc(p.name)}${setup ? "" : ` <span class="sub">· Turn ${p.turn}</span>`}</div>`;
-    return `<div class="part-row ${isMe ? "me" : ""}" data-uid="${p.uid}">
+    return `<div class="part-row ${isMe ? "me" : ""} ${tied ? "tied" : ""} ${tied && starts[i] !== i ? "tied-cont" : ""}" data-uid="${p.uid}">
       <div class="part-art">${rowArt(art, ci, art2)}</div>
       <div class="part-body">${name}${cmdField}</div>
       <span class="part-drag" title="Drag to reorder">⠿</span>${rm}</div>`;
@@ -1020,6 +1082,7 @@ function renderLiveGame(g) {
       <button class="back" id="live-cancel">Discard</button></div>
     ${setup ? `<div class="field" style="margin-top:10px"><label>Date</label><input id="live-date" type="date" value="${g.date}" /></div>` : ""}
     <div class="part-list">${rows}</div>
+    ${setup ? "" : `<p class="hint">Knocked out together? Drag one player onto the other to tie them — repeat the same drop to split.</p>`}
     ${addBtns}
     ${setup
       ? `<button class="btn-primary" id="live-finish" style="margin-top:16px">Finish game →</button>`
@@ -1039,8 +1102,9 @@ function bindLive() {
     liveSyncDom();
     const g = S.getActive();
     g.participants.sort((a, b) => order.indexOf(a.uid) - order.indexOf(b.uid));
+    normalizeTies(g);   // a reorder that splits a tie group dissolves the tie
     saveActive(g); renderLog();
-  });
+  }, S.getActive()?.status === "finish" ? liveCombine : null);
   // mount a Scryfall picker per opponent; it persists straight to the active game
   v.querySelectorAll(".part-picker").forEach(mount => {
     const uid = mount.dataset.uid;
@@ -1070,7 +1134,7 @@ function renderHistory() {
   const games = allGames().slice().sort((a, b) => b.date.localeCompare(a.date) || b.id.localeCompare(a.id));
   const rows = games.map(g => {
     const { ms, myDeck, opp } = gameSummary(g);
-    const badge = ms?.placement ? `<span class="badge" style="color:${placeColor(ms.placement, g.seats.length)}">${ord(ms.placement)}</span>` : "";
+    const badge = ms?.placement ? (pi => `<span class="badge" style="color:${placeColor(pi.start, g.seats.length)}">${placeLabel(pi)}</span>`)(M.placeInfo(g)) : "";
     return `<div class="game-item tap" data-game="${g.id}"><div class="top">
       <strong>${euDate(g.date)} · ${esc(myDeck)}</strong>${badge}</div>
       <div class="note">${g.seats.length}P · vs ${esc(opp)}</div></div>`;

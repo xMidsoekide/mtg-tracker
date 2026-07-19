@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 
 import {
   won,
+  effRank,
+  placeInfo,
   normalizedScore,
   expectedWR,
   mySeat,
@@ -285,7 +287,7 @@ test("confidence: enough + needed", () => {
 test("aggregateDeck(games, playerId): opponent finish over recorded placements only", () => {
   const games = [
     game("g1", { placement: 3, podSize: 4, opps: [{ playerId: "p", placement: 1 }] }),
-    game("g2", { placement: 2, podSize: 4, opps: [{ playerId: "p", placement: 2 }] }),
+    game("g2", { placement: 3, podSize: 4, opps: [{ playerId: "p", placement: 2 }] }),  // not 2/2: equal places now mean a tie
     game("g3", { placement: 1, podSize: 4, opps: [{ playerId: "p" }] }), // p placement not recorded
   ];
   const a = aggregateDeck(games, "p");
@@ -296,6 +298,90 @@ test("aggregateDeck(games, playerId): opponent finish over recorded placements o
   assert.equal(a.avgPlace, 1.5);
   // norms: 1st->1, 2nd->2/3; avg = 5/6; finishVsAvg = 5/6 - 1/2
   assert.ok(Math.abs(a.finishVsAvg - (5 / 6 - 0.5)) < 1e-9);
+});
+
+/* ---------- ties (competition-style storage: tied players share the start position) ---------- */
+test("effRank: sole placements unchanged, tied group averages its occupied positions", () => {
+  // 4-pod: 1st, then two tied after 1st (both stored 2), then 4th
+  const g = game("g", {
+    placement: 2, podSize: 4,
+    opps: [
+      { playerId: "a", placement: 1 },
+      { playerId: "b", placement: 2 },   // tied with me
+      { playerId: "c", placement: 4 },
+    ],
+  });
+  assert.equal(effRank(g, "a"), 1);
+  assert.equal(effRank(g, "me"), 2.5);  // occupies 2+3 -> 2.5
+  assert.equal(effRank(g, "b"), 2.5);
+  assert.equal(effRank(g, "c"), 4);
+  assert.equal(effRank(g, "nobody"), null);
+});
+
+test("placeInfo: start position + tied flag for display (T-labels)", () => {
+  const g = game("g", {
+    placement: 2, podSize: 4,
+    opps: [{ playerId: "a", placement: 1 }, { playerId: "b", placement: 2 }, { playerId: "c", placement: 4 }],
+  });
+  assert.deepEqual(placeInfo(g, "a"), { start: 1, tied: false, group: 1 });
+  assert.deepEqual(placeInfo(g, "me"), { start: 2, tied: true, group: 2 });
+  assert.deepEqual(placeInfo(g, "c"), { start: 4, tied: false, group: 1 });   // 4 entered after 2-2 stays 4th
+  assert.equal(placeInfo(g, "nobody").start, null);
+});
+
+test("effRank: null placement stays null", () => {
+  const g = game("g", { placement: 1, opps: [{ playerId: "a", placement: null }] });
+  assert.equal(effRank(g, "a"), null);
+});
+
+test("aggregateDeck: tied placements score between the occupied positions", () => {
+  // me tied after 1st in a 4-pod -> eff 2.5 -> norm (4-2.5)/3 = 0.5
+  const g = game("g", {
+    placement: 2, podSize: 4,
+    opps: [{ playerId: "a", placement: 1 }, { playerId: "b", placement: 2 }, { playerId: "c", placement: 4 }],
+  });
+  const a = aggregateDeck([g]);
+  assert.equal(a.avgPlace, 2.5);
+  assert.ok(Math.abs(a.avgNorm - 0.5) < 1e-9);
+});
+
+test("aggregateDeck: a shared 1st (draw) is not a win but still scores high", () => {
+  const g = game("g", {
+    placement: 1, podSize: 4,
+    opps: [{ playerId: "a", placement: 1 }, { playerId: "b", placement: 3 }, { playerId: "c", placement: 4 }],
+  });
+  const a = aggregateDeck([g]);
+  assert.equal(a.wins, 0);                       // sole 1st only
+  assert.ok(Math.abs(a.avgNorm - (4 - 1.5) / 3) < 1e-9);
+  const sole = aggregateDeck([game("g2", { placement: 1, podSize: 4 })]);
+  assert.equal(sole.wins, 1);                    // unchanged for sole wins
+});
+
+test("form: a shared 1st is not a W", () => {
+  const g = game("g", { placement: 1, podSize: 3, opps: [{ playerId: "a", placement: 1 }, { playerId: "b", placement: 3 }] });
+  assert.deepEqual(form([g]).recent, ["L"]);
+});
+
+test("headToHead: tying with the rival counts as neither above nor below", () => {
+  const g = game("g", {
+    placement: 2, podSize: 4,
+    opps: [{ playerId: "jordi", placement: 2 }, { playerId: "miel", placement: 1 }],
+  });
+  const h = headToHead([g]);
+  assert.equal(h.jordi.together, 1);
+  assert.equal(h.jordi.theyAboveMe, 0);
+  assert.equal(h.jordi.iAboveThem, 0);
+  assert.equal(h.jordi.ties, 1);
+  assert.equal(h.miel.theyAboveMe, 1);
+  assert.equal(h.miel.ties, 0);
+});
+
+test("bogeyDecks: tying counts as a tie, not belowMe", () => {
+  const g = game("g", { placement: 2, opps: [{ commander: "Foo", placement: 2 }] });
+  const b = bogeyDecks([g]);
+  assert.equal(b.Foo.aboveMe, 0);
+  assert.equal(b.Foo.belowMe, 0);
+  assert.equal(b.Foo.ties, 1);
 });
 
 /* ---------- real seed data smoke test ---------- */
