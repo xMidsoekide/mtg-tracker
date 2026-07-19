@@ -132,22 +132,25 @@ function heroSpark(points, w = 150, h = 40) {
     `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
        style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
        data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
-  // current form, always visible at the last dot (the hover chip still gives date + value per dot)
+  // current form as a direct end-label: lives in a reserved right gutter (clean space,
+  // never over the plot), vertically aligned with the end dot. Hover chip per dot unchanged.
   const last = points.at(-1);
   const now = `<span class="spark-now" style="top:${(Y(last.v) / h * 100).toFixed(2)}%;color:${heroCol(last.v)}">${rateVs(last.v)}</span>`;
   return `<div class="spark-wrap" style="height:${h}px">
-    <div class="spark-chip"></div>
-    <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
-      <defs>
-        <clipPath id="up${id}"><rect x="0" y="0" width="${w}" height="${tY}"/></clipPath>
-        <clipPath id="dn${id}"><rect x="0" y="${tY}" width="${w}" height="${(h - tY).toFixed(1)}"/></clipPath>
-      </defs>
-      <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--good)" opacity=".2" clip-path="url(#up${id})"/>
-      <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--bad)"  opacity=".2" clip-path="url(#dn${id})"/>
-      <polyline points="${line}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#up${id})"/>
-      <polyline points="${line}" fill="none" stroke="var(--bad)"  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#dn${id})"/>
-    </svg>
-    <div class="spark-zero" style="top:${(Y(0) / h * 100).toFixed(2)}%"></div>${dots}${now}</div>`;
+    <div class="spark-plot">
+      <div class="spark-chip"></div>
+      <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
+        <defs>
+          <clipPath id="up${id}"><rect x="0" y="0" width="${w}" height="${tY}"/></clipPath>
+          <clipPath id="dn${id}"><rect x="0" y="${tY}" width="${w}" height="${(h - tY).toFixed(1)}"/></clipPath>
+        </defs>
+        <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--good)" opacity=".2" clip-path="url(#up${id})"/>
+        <polygon points="0,${tY} ${line} ${w},${tY}" fill="var(--bad)"  opacity=".2" clip-path="url(#dn${id})"/>
+        <polyline points="${line}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#up${id})"/>
+        <polyline points="${line}" fill="none" stroke="var(--bad)"  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#dn${id})"/>
+      </svg>
+      <div class="spark-zero" style="top:${(Y(0) / h * 100).toFixed(2)}%"></div>${dots}
+    </div>${now}</div>`;
 }
 
 /* Sparkline = recent *form*, not the all-time average: each point is WR-vs-expected over the
@@ -216,12 +219,13 @@ document.addEventListener("click", e => {
 function wireSpark(view, series) {
   const wrap = view.querySelector(".spark-wrap");
   if (!wrap) return;
+  const plot = wrap.querySelector(".spark-plot") || wrap;   // chip + dots are % of the plot, not the wrap
   const chip = wrap.querySelector(".spark-chip"), n = series.length;
   const show = el => {
     chip.textContent = `${euDate(el.dataset.date)} · ${rateVs(+el.dataset.val)}`;
-    // clamp so the (translateX(-50%)-centred) chip never pokes past the wrap: an
+    // clamp so the (translateX(-50%)-centred) chip never pokes past the plot: an
     // overflowing chip widened the page and shifted the tab bar off-screen
-    const half = chip.offsetWidth / 2 / wrap.clientWidth * 100;
+    const half = chip.offsetWidth / 2 / plot.clientWidth * 100;
     const pct = n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50;
     chip.style.left = Math.min(Math.max(pct, half), 100 - half) + "%";
     chip.classList.add("show");

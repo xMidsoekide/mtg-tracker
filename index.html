@@ -55,8 +55,10 @@
     padding: 10px 12px; font-size: 12.5px; line-height: 1.45; color: var(--text);
     box-shadow: 0 8px 22px rgba(0,0,0,.45); z-index: 5; }
   .pos { color: var(--good); } .neg { color: var(--bad); }
-  /* sparkline + hover/hold chip */
+  /* sparkline + hover/hold chip. The plot leaves a right gutter where the current-form
+     value lives as a direct end-label — clean space, never overlapping the line. */
   .spark-wrap { position: relative; touch-action: none; }
+  .spark-plot { position: relative; height: 100%; margin-right: 34px; }
   .spark-wrap svg { display: block; }
   .spark-dot { position: absolute; width: 6px; height: 6px; border-radius: 50%;
     transform: translate(-50%, -50%); box-shadow: 0 0 0 1.5px var(--bg); cursor: pointer; }
@@ -70,11 +72,9 @@
     font-size: 11px; font-weight: 600; padding: 2px 7px; border-radius: 7px; white-space: nowrap;
     pointer-events: none; opacity: 0; transition: opacity .12s; z-index: 2; }
   .spark-chip.show { opacity: 1; }
-  /* current-form value pinned left of the end dot; yields to the hover/hold chip */
-  .spark-now { position: absolute; right: 12px; transform: translateY(-50%);
-    font-size: 11px; font-weight: 700; padding: 0 4px; border-radius: 6px;
-    background: color-mix(in srgb, var(--surface) 80%, transparent); pointer-events: none; }
-  .spark-wrap:has(.spark-chip.show) .spark-now { opacity: 0; }
+  /* current-form end-label, right of the end dot in the gutter */
+  .spark-now { position: absolute; right: 0; transform: translateY(-50%);
+    font-size: 11.5px; font-weight: 700; pointer-events: none; }
 
   .section-head { display:flex; align-items:center; justify-content:space-between; margin: 18px 2px 9px; }
   .section-head h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: .8px; }
