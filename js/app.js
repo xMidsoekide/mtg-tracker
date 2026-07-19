@@ -1,5 +1,6 @@
 import * as M from "./metrics.js";
 import * as S from "./storage.js";
+import { mergeStates, syncSig } from "./merge.js";
 import * as SF from "./scryfall.js";
 import * as SYNC from "./sync.js";
 
@@ -744,40 +745,14 @@ async function pushNow() {
   finally { syncing = false; updateSyncBadge(); }
 }
 
-/* union by id; on an id-collision the record from the newer state wins */
-function mergeById(winner, loser) {
-  const m = new Map();
-  for (const x of loser) m.set(x.id, x);
-  for (const x of winner) m.set(x.id, x);
-  return [...m.values()];
-}
-function mergeStates(local, remote) {
-  const localNewer = (local.updatedAt || "") >= (remote.updatedAt || "");
-  const w = localNewer ? local : remote, l = localNewer ? remote : local;
-  const deleted = [...new Set([...(local.deleted || []), ...(remote.deleted || [])])];
-  const del = new Set(deleted);
-  return {
-    players: mergeById(w.players || [], l.players || []),
-    decks:   mergeById(w.decks   || [], l.decks   || []),
-    games:   mergeById(w.games   || [], l.games   || []).filter(g => !del.has(g.id)),  // tombstoned deletes win
-    deleted,
-    settings: w.settings || l.settings,
-  };
-}
-
-/* signature of what's worth syncing — game ids, deck ids, and tombstones */
-const syncSig = s => JSON.stringify([
-  (s.games || []).map(g => g.id).sort(),
-  (s.decks || []).map(d => d.id).sort(),
-  (s.deleted || []).slice().sort(),
-]);
-
-/* pull → MERGE (never drops the other device's games, deletes propagate via tombstones) → push back */
+/* pull → validate → MERGE (per-record; deletes propagate via tombstones) → push back.
+   Merge logic lives in merge.js (pure, node-tested). */
 async function syncNow() {
   if (!SYNC.isConfigured()) return;
   syncing = true; updateSyncBadge();
   try {
-    const remote = await SYNC.pull();
+    const pulled = await SYNC.pull();
+    const remote = pulled ? S.migrate(S.validateState(pulled)) : null;   // a corrupt gist must not wipe local state
     let changed = dirty;
     if (remote) {
       const remoteSig = syncSig(remote);
@@ -787,8 +762,10 @@ async function syncNow() {
       if (allGames().map(g => g.id).sort().join() !== beforeIds) switchTab(lastTab);  // re-render if game set changed
       changed = changed || syncSig(S.getState()) !== remoteSig;     // our merged set differs from the gist
     }
-    if (changed || !remote) await SYNC.push(S.exportJson());        // push union back; skip if identical → no ping-pong
-    dirty = false;
+    if (changed || !remote) {
+      dirty = false;             // claim BEFORE the push snapshot: anything logged mid-push re-marks dirty
+      await SYNC.push(S.exportJson()).catch(e => { dirty = true; throw e; });
+    }
   } catch (e) { toast(e.message); }
   finally { syncing = false; updateSyncBadge(); }
 }
@@ -1319,7 +1296,7 @@ function saveDeckEdit() {
   if (!cmd) return toast("Commander name required");
   const fields = { commander: cmd, commander2: val.commander2 || null, art: val.art || null, art2: val.art2 || null, ci: val.ci || [], theme, artPos: editArtPos };
   if (editingDeck === "new") {
-    const id = "d_" + cmd.toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 16) + "_" + S.decks().length;
+    const id = S.newDeckId(cmd);
     S.addDeck({ id, ownerId: "me", ...fields });
   } else {
     S.updateDeck(editingDeck, fields);

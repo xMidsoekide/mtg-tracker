@@ -21,6 +21,7 @@ const PRECACHE = [
   "index.html",
   "manifest.json",
   "js/app.js",
+  "js/merge.js",
   "js/metrics.js",
   "js/scryfall.js",
   "js/storage.js",
