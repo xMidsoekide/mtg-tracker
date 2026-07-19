@@ -132,10 +132,20 @@ function heroSpark(points, w = 150, h = 40) {
     `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
        style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
        data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
-  // current form as a direct end-label above the last dot — or below it when the dot is
-  // near the top of the box. Right-aligned to the wrap so it can never widen the page.
-  const last = points.at(-1), lastY = Y(last.v);
-  const labelY = lastY >= 19 ? lastY - 13 : lastY + 13;   // 13px clears the dot + label half-height inside h=40
+  // current form as a direct end-label near the last dot. The label is right-anchored and
+  // ~20% of the plot wide, so "above" or "below" is only clear if no nearby geometry — the
+  // trailing dots and the incoming line — sits there too (a rising tail fills the space
+  // below-left, a falling tail the space above-left). Test both spots against the actual
+  // pixel positions and take the clear one; if neither is clear, take the emptier one.
+  const last = points.at(-1), lastY = Y(last.v), n = points.length;
+  const nearby = [];                                     // y-positions under the label's span
+  points.forEach((p, i) => { if (i / (n - 1) >= 0.78) nearby.push(Y(p.v)); });
+  nearby.push((Y(points.at(-2).v) + lastY) / 2);         // incoming segment, approximated by its midpoint
+  const room = ly => Math.min(...nearby.map(y => Math.abs(y - ly)));
+  const fits = ly => ly >= 8 && ly <= h - 8 && room(ly) >= 10;
+  const above = lastY - 14, below = lastY + 14;
+  const labelY = fits(above) ? above : fits(below) ? below
+    : (above >= 8 && (below > h - 8 || room(above) >= room(below)) ? above : below);
   const now = `<span class="spark-now" style="top:${(labelY / h * 100).toFixed(2)}%;color:${heroCol(last.v)}">${rateVs(last.v)}</span>`;
   return `<div class="spark-wrap" style="height:${h}px">
     <div class="spark-chip"></div>
