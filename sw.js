@@ -6,7 +6,7 @@
    - Cross-origin (Scryfall images, api.github.com gist sync) is NOT intercepted: those need
      live network + auth, and caching them here would only get in the way.
    Bump VERSION whenever the shell changes so old caches are cleared on activate. */
-const VERSION = "v5";
+const VERSION = "v6";
 const CACHE = `mtg-tracker-${VERSION}`;
 
 const PRECACHE = [

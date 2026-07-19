@@ -325,8 +325,9 @@ const goodnessColor = f => f <= 0.5
    orange → red gradient for 3rd…last. Green is never blended into the orange (that mix goes
    yellow, which reads like the gold), so every tier stays visually distinct. Shared by
    recently-played + history. */
-/* tie-aware place text from placeInfo: "T-3rd" when knocked out together */
-const placeLabel = pi => pi.start == null ? "—" : (pi.tied ? "T-" : "") + ord(pi.start);
+/* tie-aware place text from placeInfo: "T‑3rd" when knocked out together
+   (non-breaking hyphen U+2011 — a plain "-" lets narrow badges wrap to "T-" / "3RD") */
+const placeLabel = pi => pi.start == null ? "—" : (pi.tied ? "T‑" : "") + ord(pi.start);
 
 const placeColor = (p, pod) => {
   if (p == null) return "var(--muted)";
@@ -659,7 +660,7 @@ function renderQuickLog() {
     <div class="field"><label>Opponents &amp; their finish</label>${oppBlocks}</div>
     <div class="field"><label>Notes</label><textarea id="log-notes" placeholder="What decided the game?">${esc(draft.notes)}</textarea></div>
     <button class="btn-primary" id="save-game">Save game</button>
-    <p class="hint">Pick known friends to unlock head-to-head. Finishing places are optional but power the Rivals tab. Knocked out together? Give players the same place — that counts as a tie.</p>`;
+    <p class="hint">Pick known friends to unlock head-to-head. Finishing places are optional but power the Rivals tab.</p>`;
 
   const v = $("#view-log");
   v.querySelector("#start-live").addEventListener("click", startLive);
@@ -1050,7 +1051,7 @@ function renderLiveGame(g) {
   const rows = g.participants.map((p, i) => {
     const isMe = p.playerId === "me";
     const tied = !setup && (starts[i] !== i || starts[i + 1] === i);   // in a group of 2+ (continuation, or head with a follower)
-    const lead = setup ? `${i + 1}.` : (tied ? "T-" : "") + ord(starts[i] + 1);
+    const lead = setup ? `${i + 1}.` : (tied ? "T‑" : "") + ord(starts[i] + 1);   // U+2011: keep "T‑2nd" on one line
     const myDeck = isMe ? S.deckById(p.deckId) : null;
     const art = isMe ? myDeck?.art : p.art;
     const art2 = isMe ? (myDeck?.art2 || null) : (p.art2 || null);
@@ -1082,7 +1083,6 @@ function renderLiveGame(g) {
       <button class="back" id="live-cancel">Discard</button></div>
     ${setup ? `<div class="field" style="margin-top:10px"><label>Date</label><input id="live-date" type="date" value="${g.date}" /></div>` : ""}
     <div class="part-list">${rows}</div>
-    ${setup ? "" : `<p class="hint">Knocked out together? Drag one player onto the other to tie them — repeat the same drop to split.</p>`}
     ${addBtns}
     ${setup
       ? `<button class="btn-primary" id="live-finish" style="margin-top:16px">Finish game →</button>`
