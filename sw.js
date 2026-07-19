@@ -8,8 +8,12 @@
      either everything fresh (online) or everything from the same precache (offline).
    - Cross-origin (Scryfall images, api.github.com gist sync) is NOT intercepted: those need
      live network + auth, and caching them here would only get in the way.
+   - All shell fetches bypass the browser's HTTP cache (cache: no-cache / reload): GitHub
+     Pages serves max-age=600, so a plain fetch() happily returns a 10-minute-old app.js
+     "from the network" — the third cache layer that kept re-creating version skew. no-cache
+     revalidates with ETags, so unchanged files are still cheap 304s.
    Bump VERSION whenever the shell changes so old caches are cleared on activate. */
-const VERSION = "v15";
+const VERSION = "v16";
 const CACHE = `mtg-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -29,7 +33,10 @@ const PRECACHE = [
 ];
 
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
+  // cache:"reload" — precache straight from the server, never from the HTTP cache
+  e.waitUntil(caches.open(CACHE)
+    .then(c => c.addAll(PRECACHE.map(u => new Request(u, { cache: "reload" }))))
+    .then(() => self.skipWaiting()));
 });
 
 self.addEventListener("activate", e => {
@@ -52,7 +59,7 @@ self.addEventListener("fetch", e => {
   if (url.origin !== self.location.origin) return;   // let Scryfall / GitHub go straight to network
 
   e.respondWith(
-    fetch(request)
+    fetch(request, { cache: "no-cache" })   // revalidate with the server; never trust max-age
       .then(r => { caches.open(CACHE).then(c => c.put(request, r.clone())); return r; })
       .catch(() => caches.match(request).then(r => r || (request.mode === "navigate" ? caches.match("index.html") : Response.error())))
   );
