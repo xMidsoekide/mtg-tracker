@@ -318,6 +318,24 @@ test("effRank: sole placements unchanged, tied group averages its occupied posit
   assert.equal(effRank(g, "nobody"), null);
 });
 
+test("effRank: 3-way tie averages all occupied positions, pod total stays constant", () => {
+  // 4-pod: I win by killing everyone at once -> 1st, then a 3-way tie for 2nd
+  const g = game("g", {
+    placement: 1, podSize: 4,
+    opps: [
+      { playerId: "a", placement: 2 },
+      { playerId: "b", placement: 2 },
+      { playerId: "c", placement: 2 },
+    ],
+  });
+  assert.equal(effRank(g, "me"), 1);
+  for (const pid of ["a", "b", "c"]) assert.equal(effRank(g, pid), 3);  // (2+3+4)/3
+  assert.deepEqual(placeInfo(g, "a"), { start: 2, tied: true, group: 3 });
+  // pod's total normalized score is unchanged by the tie: 1 + 3×(4-3)/3 = 2, same as 1+2/3+1/3+0
+  const total = ["me", "a", "b", "c"].reduce((s, pid) => s + normalizedScore(effRank(g, pid), 4), 0);
+  assert.ok(Math.abs(total - 2) < 1e-9);
+});
+
 test("placeInfo: start position + tied flag for display (T-labels)", () => {
   const g = game("g", {
     placement: 2, podSize: 4,
