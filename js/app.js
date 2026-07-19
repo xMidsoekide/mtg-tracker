@@ -531,7 +531,7 @@ function renderRivals() {
         <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
         ${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}
         <div class="wld">${seg(w, "var(--good)")}${seg(t, "var(--warn)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
-        <div class="legend">${leg("var(--good)", "Beat them", w)}${leg("var(--warn)", "Tied", t)}${leg("var(--bad)", "Lost to them", l)}${leg("var(--surface-2)", "Not recorded", u)}</div>
+        <div class="legend">${leg("var(--good)", "Beat", w)}${leg("var(--warn)", "Tied", t)}${leg("var(--bad)", "Lost", l)}${leg("var(--surface-2)", "Unknown", u)}</div>
       </div></div>`;
   }).join("");
 

@@ -154,8 +154,10 @@
   .dist .bar .n { font-size:12px; color:var(--muted); }
   .dist .bar .lab { font-size:11px; color:var(--muted); }
   .game-item { background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:11px 13px; margin-bottom:8px; }
-  .game-item .top { display:flex; justify-content:space-between; align-items:center; }
-  .game-item .badge { font-size:12px; font-weight:700; padding:2px 9px; border-radius:20px; }
+  .game-item .top { display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .game-item .top strong { min-width:0; }   /* the title shrinks/wraps, never the badge */
+  .game-item .badge { font-size:12px; font-weight:700; padding:2px 9px; border-radius:20px;
+    flex:0 0 auto; white-space:nowrap; text-align:right; }
   .game-item .note { color:var(--muted); font-size:12.5px; margin-top:5px; }
   .empty { color:var(--muted); text-align:center; padding:40px 10px; }
 
