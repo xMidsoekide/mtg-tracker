@@ -523,7 +523,7 @@ function renderRivals() {
     const tot = h.together || 1;
     const w = h.iAboveThem, l = h.theyAboveMe, t = h.ties, u = h.unknown;
     const seg = (n, color) => n ? `<span style="width:${n / tot * 100}%;background:${color}"></span>` : "";
-    const leg = (color, label, n) => n ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
+    const leg = (color, label, n, always = false) => (n || always) ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
     return `<div class="h2h" data-rival="${id}">
       <div class="h2h-art">${rowArt(top?.art, top?.ci)}</div>
@@ -531,7 +531,7 @@ function renderRivals() {
         <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
         ${top?.name ? `<div class="rec">${esc(shortName(top.name))}</div>` : ""}
         <div class="wld">${seg(w, "var(--good)")}${seg(t, "var(--warn)")}${seg(l, "var(--bad)")}${seg(u, "var(--surface-2)")}</div>
-        <div class="legend">${leg("var(--good)", "Beat", w)}${leg("var(--warn)", "Tied", t)}${leg("var(--bad)", "Lost", l)}${leg("var(--surface-2)", "Unknown", u)}</div>
+        <div class="legend">${leg("var(--good)", "Beat", w)}${leg("var(--warn)", "Tied", t, true)}${leg("var(--bad)", "Lost", l)}${leg("var(--surface-2)", "Unknown", u)}</div>
       </div></div>`;
   }).join("");
 
