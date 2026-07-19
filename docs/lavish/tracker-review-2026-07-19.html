@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Commander Tracker — Full Review</title>
+<style>
+body{font:15px/1.5 -apple-system,sans-serif;max-width:1100px;margin:0 auto;padding:32px;background:#f8fafc;color:#1e293b}
+table.f{border-collapse:collapse;width:100%;font-size:13.5px}
+table.f th{text-align:left;color:#64748b;font-weight:600;padding:6px 8px;border-bottom:2px solid #e2e8f0}
+table.f td{padding:6px 8px;border-bottom:1px solid #e2e8f0;vertical-align:top}
+table.f code{background:#eef2f7;padding:1px 5px;border-radius:4px;font-size:12px;white-space:nowrap}
+.sev{font-weight:700;font-size:11px;padding:2px 7px;border-radius:9px;white-space:nowrap}
+.sev.p0{background:#fee2e2;color:#b91c1c}.sev.p1{background:#ffedd5;color:#c2410c}.sev.p2{background:#fef9c3;color:#a16207}
+.conf{color:#64748b;font-size:11.5px}
+h2{margin-top:34px}
+.win{outline:2px solid #16a34a33;background:#f0fdf4}
+</style>
+</head>
+<body><div style="position:sticky;top:0;z-index:2147483647;background:#0f766e;color:#fff;font:600 13px/1 -apple-system,sans-serif;padding:10px 16px;">Archived lavish artifact — 2026-07-19 — interactive elements frozen</div>
+<h1>Commander Tracker — Full Review</h1>
+<p style="color:#64748b">2026-07-19 · three parallel reviews (correctness · product/UX · code health &amp; PWA) over the whole repo at v18</p>
+
+<div class="lav-tldr"><b>Conclusion</b> The stats core and the hard-won SW update pipeline are genuinely solid — but sync has four real data-correctness bugs worth fixing before any new feature, and the two highest-value product wins are embarrassingly cheap because the code already exists.
+  <ol>
+    <li><b>Fix sync first</b> — per-record merge reverts edits, deleted decks resurrect, duplicate deck ids, and import/pull can persist (and push!) corrupt state.</li>
+    <li><b>Free stats are lying dormant</b> — <code>wilson()</code> is written &amp; tested but unused: the deck leaderboard ranks a 1-game 10.0 above a 12-game 7.1.</li>
+    <li><b>Rivals is starved by logging friction</b> — nearly all opponent placements are null in practice; tap-to-eliminate in the live game would fix the data at the source.</li>
+    <li><b>Don't split app.js</b> — extract only the pure logic (merge, ties) for tests; the rest is fine at 1400 lines.</li>
+  </ol>
+</div>
+
+<h2>Bugs &amp; correctness <span class="conf">(16 findings, deduped across reviewers; all file refs verified by the reviewer)</span></h2>
+<table class="f">
+<tr><th></th><th>Where</th><th>Defect → failure scenario</th></tr>
+<tr><td><span class="sev p0">P0</span></td><td><code>app.js:754</code></td><td><b>Merge is whole-state, not per-record.</b> Collisions resolve by global <code>updatedAt</code>: A edits game X, B logs game Y later → A's next sync lets B's <i>stale copy of X</i> win and pushes it back. Silent edit loss between devices. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p0">P0</span></td><td><code>storage.js:105</code> · <code>sync.js:73</code></td><td><b>Import/pull accept unvalidated JSON.</b> Wrong paste into the import box → <code>state.players</code> undefined → every render crashes, broken state is persisted <i>and auto-pushed to the gist</i>, corrupting the other device. ~10-line shape guard fixes it. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p0">P0</span></td><td><code>storage.js:71</code></td><td><b>Deck deletions have no tombstone</b> (games do). Deck deleted on device A resurrects from device B on every sync, forever. First real schema migration (<code>deleted: {games, decks}</code>). <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p0">P0</span></td><td><code>storage.js:87</code> · <code>app.js:1322</code></td><td><b>Deck id suffix reuses <code>decks.length</code></b> after a delete → two decks share an id; <code>deckById</code> returns the wrong one and merge silently drops one. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>metrics.js:169,197</code></td><td><b>headToHead/bogeyDecks don't guard my null placement</b> — <code>s.placement &lt; null</code> is false, so a 1st-place opponent lands in "I beat them". <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>metrics.js:127</code></td><td><b>seatBreakdown counts placement-less games</b> — <code>normalizedScore(null)</code> ≈ 1.33 inflates a seat's finish rating above the maximum. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>metrics.js:156,189</code></td><td><b>Game without a "me" seat crashes Rivals</b> (<code>mySeat(g).placement</code> TypeError) — importable/syncable state renders a blank tab. Also the blocker for any future "view as" feature. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>app.js:1240</code></td><td><b>saveEdit accepts impossible placements</b> — all four seats set to 4th in a 4-pod → effective rank 5.5, rating −5.0 on screen. Cap <code>start+group−1</code> at pod size. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>sw.js:63</code></td><td><b>SW caches non-ok responses</b> — a transient 500 from Pages becomes the cached offline copy of app.js, breaking offline. Guard <code>if (r.ok)</code> + <code>e.waitUntil</code> the put. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>app.js:794</code></td><td><b><code>dirty</code>-flag race in syncNow</b> — a game logged during the boot sync stays unpushed until the next edit (final <code>dirty = false</code> erases a flag set mid-await). <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p1">P1</span></td><td><code>app.js:1200</code></td><td><b>Edit screen deck select falls back silently</b> — if a game's deckId no longer exists (merge), the first deck preselects; saving reassigns the game to an unrelated deck. <span class="conf">plausible</span></td></tr>
+<tr><td><span class="sev p2">P2</span></td><td><code>app.js:1212,663,…</code></td><td><b>Unescaped attribute interpolation</b> (<code>value="${g.date}"</code>, <code>data-rival="${id}"</code>) — crafted import/sync JSON with <code>"</code> breaks out of the attribute (markup/XSS injection). Text positions are all escaped; attributes aren't. <span class="conf">plausible</span></td></tr>
+<tr><td><span class="sev p2">P2</span></td><td><code>quick log</code></td><td><b>Same player selectable in two opponent slots</b> — headToHead counts them twice per game. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p2">P2</span></td><td><code>app.js:619</code></td><td><b>"Repeat last pod" uses insertion order</b>, not latest date — after an import it restores an old pod. <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p2">P2</span></td><td><code>storage.js:19</code></td><td><b>Corrupted localStorage blob → permanently blank app</b> (uncaught <code>JSON.parse</code> in load, no recovery path). <span class="conf">confirmed</span></td></tr>
+<tr><td><span class="sev p2">P2</span></td><td><code>metrics.js:9</code></td><td><b>1-seat game renders "NaN"</b> — <code>normalizedScore(1,1)</code> = 0/0; only reachable via import. <span class="conf">plausible</span></td></tr>
+</table>
+<details class="lav-more"><summary>Areas checked and found clean</summary>
+<p>Tie semantics consistency across every screen (compare, seat labels, history badges, live-game tieStarts/normalizeTies — competition-style everywhere, shared-1st-not-a-win consistent in wins/form/hero); aggregateDeck 0/1-game null handling; heroSpark empty/corner math; placeColor pod-3 guard; <code>esc()</code> coverage on all text positions; scryfall fail-soft paths; gist token isolation; push/pull cache-busting; debounced push + background flush; SW precache/activate versioning; controllerchange reload guard; nav stack; deck-delete-with-games guard; ensureDeck case-insensitive matching; the test suite itself.</p>
+<p>Also explicitly endorsed by the code-health reviewer, do not touch: metrics.js design, the network-first SW strategy, storage.js commit() pattern, full re-render per tab (a non-problem at this size — don't add a vdom), Scryfall usage (debounced, cached, within rate guidance).</p>
+</details>
+
+<h2>Hardening &amp; code health <span class="conf">(testability-driven, not aesthetics)</span></h2>
+<div class="lav-grid">
+  <div class="lav-card"><h3>Extract <code>js/merge.js</code> + tests <span class="lav-tag effort-s">S</span> <span class="lav-tag bad">high payoff</span></h3>
+    <p><code>mergeStates/mergeById/syncSig</code> (app.js:747–794) decide whose data wins across devices and have zero tests. Pure functions — mechanical extraction; then the P0 merge fixes land with regression tests.</p></div>
+  <div class="lav-card"><h3>Extract <code>js/ties.js</code> + tests <span class="lav-tag effort-s">S</span> <span class="lav-tag bad">high payoff</span></h3>
+    <p><code>normalizeTies/tieStarts/liveCombine</code> core — the trickiest semantics in the app, currently only verifiable by hand-dragging rows. Tests: split-by-reorder, toggle-off, 1-2-2-4 placement.</p></div>
+  <div class="lav-card"><h3>PRECACHE completeness test <span class="lav-tag effort-s">S</span> <span class="lav-tag bad">high payoff</span></h3>
+    <p>Assert every file in <code>js/</code> + every script ref in index.html appears in the SW precache list. The first forgotten <code>js/ties.js</code> silently breaks offline; this makes it a red bar.</p></div>
+  <div class="lav-card"><h3>VERSION-bump guard <span class="lav-tag effort-s">S</span> <span class="lav-tag warn">med payoff</span></h3>
+    <p>Pre-push check: diff touches shell files → sw.js VERSION must differ. Automates the rule that today lives in discipline (and memory notes).</p></div>
+  <div class="lav-card"><h3>Schema versioning <span class="lav-tag effort-s">S</span> <span class="lav-tag warn">med payoff</span></h3>
+    <p><code>schemaVersion</code> field + <code>migrate()</code> chain in load(). The deck-tombstone fix is the natural first migration; without this it's ad-hoc forever.</p></div>
+  <div class="lav-card"><h3>Dedup seat/save helpers <span class="lav-tag effort-s">S</span> <span class="lav-tag warn">med payoff</span></h3>
+    <p><code>seatIdentity(seat)</code> (6 hand-rolled sites, already drifting on art2 fallback) and <code>buildOppSeat</code> (saveGame vs liveSave duplicate the ensureDeck dance).</p></div>
+</div>
+
+<h2>Feature menu <span class="conf">(ranked by value-for-effort for a 2-3-games/month fixed group)</span></h2>
+<div class="lav-grid">
+  <div class="lav-card win"><h3>1 · Per-player deck prefill in Log <span class="lav-tag effort-s">S</span> <span class="lav-tag ok">quick win</span></h3>
+    <p>Pick "Miel" → commander prefilled with their most-recent deck (same lookup <code>topCommander()</code> already does). Turns quick-log into ~6 taps for the common case.</p></div>
+  <div class="lav-card win"><h3>2 · Real backup: file download + import preview <span class="lav-tag effort-s">S</span> <span class="lav-tag ok">quick win</span></h3>
+    <p>Blob download (<code>mtg-tracker-2026-07-19.json</code>) + file picker + confirm diff ("import has 42 games, you have 45 — continue?") instead of the copy-paste textarea. Pairs with the import validation P0. Zero-code bonus: link to the gist's revision history for disaster recovery.</p></div>
+  <div class="lav-card win"><h3>3 · Honest leaderboard via the dead <code>wilson()</code> <span class="lav-tag effort-s">S</span> <span class="lav-tag ok">quick win</span></h3>
+    <p>Rank decks by rating shrunk toward 5.0 by sample size (display the raw number). Stops a 1-game 10.0 outranking a 12-game 7.1. One sort change; the stats function is already written and tested.</p></div>
+  <div class="lav-card"><h3>4 · Game duration for free <span class="lav-tag effort-s">S</span></h3>
+    <p>The live game already knows when the pod sat down — stamp <code>startedAt</code>, compute duration at save. Avg length per pod size / per deck, zero extra taps.</p></div>
+  <div class="lav-card"><h3>5 · Tap-to-eliminate in live game <span class="lav-tag effort-m">M</span></h3>
+    <p>"☠" per row during the game assigns places as people die (ties = two taps together; drag stays as fallback). Makes opponent placements the <i>default</i> — which is what actually unlocks Rivals/nemesis, currently starved (seed data: every opponent placement null). Byproduct: elimination timeline.</p></div>
+  <div class="lav-card"><h3>6 · "How the game ended" chips <span class="lav-tag effort-s">S/M</span></h3>
+    <p>One optional tap at finish: Combat / Combo / Attrition / Stax / Scooped. Answers the most common post-game question ("what actually kills this pod?").</p></div>
+  <div class="lav-card"><h3>7 · History filters + read-only game view <span class="lav-tag effort-s">S</span></h3>
+    <p>Chip row (my deck / opponent / pod size) over History. Also: tapping a row currently lands on the destructive edit screen — add a view step.</p></div>
+  <div class="lav-card"><h3>8 · Per-my-deck matchups in deck detail <span class="lav-tag effort-s">S/M</span></h3>
+    <p>Parametrize <code>bogeyDecks()</code> by my deck: "Belbe struggles vs Reyhan (0/3)". The question a deckbuilder actually asks; needs the shrinkage treatment at n=2-4.</p></div>
+  <div class="lav-card"><h3>9 · Deck bracket / power level <span class="lav-tag effort-m">M</span></h3>
+    <p>Bracket 1-5 per deck → "6.8 overall, 4.9 in higher-bracket pods". Settles the "your deck is just stronger" argument with data.</p></div>
+  <div class="lav-card"><h3>10 · Multi-perspective "view as" <span class="lav-tag effort-l">M/L</span></h3>
+    <p>Per-device <code>viewAs</code> setting over the shared gist → each friend gets their own Overview/Rivals. The rendering already generalizes (<code>overviewBlock(games, pid)</code>); the "me" hardcoding + the P1 null-seat crash are the blockers. Converts a personal tool into the group's tracker.</p></div>
+</div>
+
+<h2>UX flags <span class="conf">(small frictions, no decision needed — batch or skip)</span></h2>
+<ul>
+  <li><b>Settings hides behind the ☁︎ button</b> — decks/backup are undiscoverable; consider a gear or a labeled entry.</li>
+  <li><b>Compare's "Leaders" strip duplicates the sections below it</b> — drop it or move to Overview.</li>
+  <li><b>"Swinginess" on 2-5 samples is a random-number generator</b> shown to 2 decimals with two leader cards — hide until n≥5.</li>
+  <li><b>Rival page framing</b>: "Jordi's finish rating" is computed only from games <i>with you</i> — add "in N games with you".</li>
+  <li><b>Quick-log never records opponent seats</b> — pod-wide turn-order stats can only ever come from live games; fine, but worth knowing.</li>
+  <li><b>Dead exports</b>: <code>form()</code>, <code>wilson()</code>, <code>confidence()</code> unused by the UI (wilson becomes live via feature #3).</li>
+</ul>
+
+<h2>What next?</h2>
+<form id="lav-next" class="lav-card">
+  <p style="margin-top:0"><b>Pick what I should build, in this session or the next.</b> Everything stays local until pushed — my normal flow (branch → TDD → verify → merge to main, which deploys the app) applies per batch.</p>
+  <label><input type="checkbox" name="step" value="Batch A — P0 sync/data fixes (merge per-record, import validation, deck tombstones + schema versioning, deck-id fix), with merge.js extraction + tests"> <b>Batch A · P0 sync &amp; data fixes</b> — merge, import validation, tombstones, deck ids <span class="lav-tag effort-m">M total</span></label><br>
+  <label><input type="checkbox" name="step" value="Batch B — P1 correctness fixes (h2h null guards, seatBreakdown filter, no-me-seat guard, saveEdit cap, sw r.ok guard, dirty-flag race, edit deck-select guard)"> <b>Batch B · P1 correctness fixes</b> — stats guards, saveEdit cap, SW response guard <span class="lav-tag effort-m">M total</span></label><br>
+  <label><input type="checkbox" name="step" value="Batch C — P2 sweep (attribute escaping, duplicate-opponent guard, repeatLastPod by date, localStorage parse recovery, NaN guard)"> <b>Batch C · P2 sweep</b> — attribute escaping, small guards <span class="lav-tag effort-s">S total</span></label><br>
+  <label><input type="checkbox" name="step" value="Quick wins — per-player deck prefill, file backup + import preview, wilson-shrunk leaderboard"> <b>Quick wins 1-3</b> — deck prefill, real backup, honest leaderboard <span class="lav-tag effort-s">S total</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: game duration via live game startedAt"> Feature 4 · game duration <span class="lav-tag effort-s">S</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: tap-to-eliminate in live game"> Feature 5 · tap-to-eliminate <span class="lav-tag effort-m">M</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: win-condition chips at finish"> Feature 6 · win-con chips <span class="lav-tag effort-m">S/M</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: history filters + read-only game view"> Feature 7 · history filters + view <span class="lav-tag effort-s">S</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: per-my-deck matchups"> Feature 8 · per-deck matchups <span class="lav-tag effort-m">S/M</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: deck brackets"> Feature 9 · deck brackets <span class="lav-tag effort-m">M</span></label><br>
+  <label><input type="checkbox" name="step" value="Feature: multi-perspective view-as"> Feature 10 · view-as (group tracker) <span class="lav-tag effort-l">M/L</span></label><br>
+  <label><input type="checkbox" name="step" value="UX flags batch (settings discoverability, drop Compare leaders strip, hide swinginess under n=5, rival framing sub-line)"> UX flags batch <span class="lav-tag effort-s">S</span></label><br>
+  <button type="submit" class="lav-submit" style="margin-top:10px">Queue selections</button>
+</form>
+
+<script>
+document.getElementById("lav-next").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const picked = [...document.querySelectorAll('input[name=step]:checked')].map(i => i.value);
+  const answer = "Build: " + (picked.join(" || ") || "none");
+  if (window.lavish) window.lavish.queuePrompt(answer, { tag: "next-steps", text: (picked.length + " item(s) selected"), queueKey: "next" });
+});
+</script>
+<style>/* lav components — auto-injected into every served artifact (and inlined on archive).
+   Artifacts use these classes instead of re-inventing styling per session. */
+
+.lav-tldr { background:#eef2ff; border:1px solid #c7d2fe; border-radius:12px; padding:16px 18px; margin:0 0 24px; }
+.lav-tldr > b:first-child { display:block; color:#3730a3; margin-bottom:4px; }
+.lav-tldr ol, .lav-tldr ul { margin:8px 0 0; padding-left:22px; }
+.lav-tldr li { margin:4px 0; }
+.lav-tldr li > b { color:#3730a3; }
+
+.lav-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
+.lav-card { background:#fff; border:1px solid #e2e8f0; border-radius:12px; padding:14px 16px; }
+.lav-card h3 { margin:0 0 6px; font-size:15px; }
+.lav-card:has(input:checked) { box-shadow:0 0 0 2px #4f46e5; background:#eef2ff; }
+
+.lav-tag { display:inline-block; font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px; vertical-align:middle; }
+.lav-tag.ok, .lav-tag.effort-s { background:#dcfce7; color:#166534; }
+.lav-tag.warn, .lav-tag.effort-m { background:#fef9c3; color:#854d0e; }
+.lav-tag.bad, .lav-tag.effort-l { background:#fee2e2; color:#991b1b; }
+.lav-tag.info { background:#e0e7ff; color:#3730a3; }
+
+.lav-matrix { border-collapse:collapse; width:100%; }
+.lav-matrix th, .lav-matrix td { border:1px solid #e2e8f0; padding:6px 10px; text-align:center; font-size:14px; }
+.lav-matrix th:first-child, .lav-matrix td:first-child { text-align:left; }
+.lav-matrix td.yes { background:#dcfce7; color:#166534; font-weight:700; }
+.lav-matrix td.mid { background:#fef9c3; color:#854d0e; font-weight:700; }
+.lav-matrix td.no  { background:#fee2e2; color:#991b1b; font-weight:700; }
+
+/* revision highlighting (rev 2..5, cycling) */
+.rev-2 { background:#fef9c3; } .rev-3 { background:#f3e8ff; } .rev-4 { background:#ccfbf1; } .rev-5 { background:#ffedd5; }
+div.rev-2, div.rev-3, div.rev-4, div.rev-5, li.rev-2, li.rev-3, li.rev-4, li.rev-5 { border-left:3px solid rgba(0,0,0,.25); padding-left:8px; }
+.lav-revbadge { font-size:11px; font-weight:700; background:#1c1917; color:#fff; border-radius:999px; padding:2px 8px; vertical-align:middle; }
+
+/* mermaid sizing fix — pairs with mermaid.initialize({flowchart:{useMaxWidth:false}}) */
+.mermaid svg { width:100% !important; height:auto; }
+
+details.lav-more { margin-top:8px; }
+details.lav-more > summary { cursor:pointer; font-size:13px; color:#475569; }
+
+.lav-submit { background:#4f46e5; color:#fff; font-weight:600; border:none; border-radius:8px; padding:9px 18px; cursor:pointer; }
+.lav-submit:hover { background:#4338ca; }
+</style><script>document.querySelectorAll('input,textarea,button,select').forEach(function(e){e.disabled=true})</script></body>
+</html>
