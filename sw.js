@@ -1,12 +1,15 @@
 /* Service worker — makes the tracker installable + offline-capable.
-   Strategy:
-   - App shell (this origin) is precached on install.
-   - Navigations: network-first so a freshly-deployed index.html wins, cached index as fallback.
-   - Other same-origin GETs: stale-while-revalidate — instant from cache, refresh in the background.
+   Strategy (network-first across the whole shell so it updates ATOMICALLY):
+   - App shell (this origin) is precached on install for offline.
+   - ALL same-origin GETs: network-first, cached copy only as offline fallback. The previous
+     split — navigations network-first, assets stale-while-revalidate — served a fresh
+     index.html (inline CSS) with a one-version-old app.js on every deploy: new styles
+     driving old markup rendered visibly broken until a second reload. Same version rule:
+     either everything fresh (online) or everything from the same precache (offline).
    - Cross-origin (Scryfall images, api.github.com gist sync) is NOT intercepted: those need
      live network + auth, and caching them here would only get in the way.
    Bump VERSION whenever the shell changes so old caches are cleared on activate. */
-const VERSION = "v11";
+const VERSION = "v12";
 const CACHE = `mtg-tracker-${VERSION}`;
 
 const PRECACHE = [
@@ -43,21 +46,9 @@ self.addEventListener("fetch", e => {
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) return;   // let Scryfall / GitHub go straight to network
 
-  if (request.mode === "navigate") {
-    e.respondWith(
-      fetch(request)
-        .then(r => { caches.open(CACHE).then(c => c.put(request, r.clone())); return r; })
-        .catch(() => caches.match(request).then(r => r || caches.match("index.html")))
-    );
-    return;
-  }
-
   e.respondWith(
-    caches.match(request).then(cached => {
-      const network = fetch(request)
-        .then(r => { caches.open(CACHE).then(c => c.put(request, r.clone())); return r; })
-        .catch(() => cached);
-      return cached || network;
-    })
+    fetch(request)
+      .then(r => { caches.open(CACHE).then(c => c.put(request, r.clone())); return r; })
+      .catch(() => caches.match(request).then(r => r || (request.mode === "navigate" ? caches.match("index.html") : Response.error())))
   );
 });
