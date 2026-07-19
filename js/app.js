@@ -132,6 +132,9 @@ function heroSpark(points, w = 150, h = 40) {
     `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
        style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
        data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
+  // current form, always visible at the last dot (the hover chip still gives date + value per dot)
+  const last = points.at(-1);
+  const now = `<span class="spark-now" style="top:${(Y(last.v) / h * 100).toFixed(2)}%;color:${heroCol(last.v)}">${rateVs(last.v)}</span>`;
   return `<div class="spark-wrap" style="height:${h}px">
     <div class="spark-chip"></div>
     <svg viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="none">
@@ -144,7 +147,7 @@ function heroSpark(points, w = 150, h = 40) {
       <polyline points="${line}" fill="none" stroke="var(--good)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#up${id})"/>
       <polyline points="${line}" fill="none" stroke="var(--bad)"  stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" clip-path="url(#dn${id})"/>
     </svg>
-    <div class="spark-zero" style="top:${(Y(0) / h * 100).toFixed(2)}%"></div>${dots}</div>`;
+    <div class="spark-zero" style="top:${(Y(0) / h * 100).toFixed(2)}%"></div>${dots}${now}</div>`;
 }
 
 /* Sparkline = recent *form*, not the all-time average: each point is WR-vs-expected over the
