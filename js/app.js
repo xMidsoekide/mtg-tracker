@@ -136,10 +136,11 @@ function heroSpark(points, w = 150, h = 40) {
   // whichever has more clearance. Hugging the last dot doesn't work in a 40px-tall plot:
   // rolling-form curves cluster, so the spots right above/below the dot are usually
   // occupied by the incoming line and neighbouring dots. The corner check samples the
-  // real geometry (line segments + dots) across the label's span, plus the dotted zero
-  // baseline, so the label lands in the emptier corner and stays put.
+  // real geometry (line segments + dots) across the label's span. The faint dotted zero
+  // baseline is deliberately NOT counted — text over a hairline stays legible, and
+  // counting it wasted a genuinely empty corner whenever the baseline hugged an edge.
   const last = points.at(-1), n = points.length;
-  const nearby = [Y(0)];                                 // y-positions inside the label's span (rightmost ~28%)
+  const nearby = [];                                     // y-positions inside the label's span (rightmost ~28%)
   for (let i = 1; i < n; i++) {
     const x0 = (i - 1) / (n - 1), x1 = i / (n - 1);
     for (let t = 0; t <= 4; t++) {
