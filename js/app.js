@@ -196,8 +196,18 @@ function heroBlock(games, pid, label) {
           ${heroSpark(series)}
         </div>
       </div>`;
-  return { series, html: `<div class="tiles"><div class="tile hero"><div class="label">${label}</div>${body}</div></div>` };
+  return { series, html: `<div class="tiles"><div class="tile hero"><div class="label">${label}</div>
+    <details class="hero-info"><summary aria-label="What does this score mean?">?</summary>
+      <div class="info-pop">Where ${pid === "me" ? "you" : "they"} tend to finish, from 0 to 10.
+        Winning every game is a <b>10</b>, going out first every game is a <b>0</b> — <b>5</b> is mid-pack.
+        Every finish counts, not just wins, and pod size is factored in.</div>
+    </details>${body}</div></div>` };
 }
+
+/* <details> only toggles on its own summary — close an open info pop on any outside tap */
+document.addEventListener("click", e => {
+  document.querySelectorAll(".hero-info[open]").forEach(d => { if (!d.contains(e.target)) d.removeAttribute("open"); });
+});
 
 /* wire the tap/hold date chip on a freshly-rendered sparkline inside `view` */
 function wireSpark(view, series) {
@@ -206,7 +216,11 @@ function wireSpark(view, series) {
   const chip = wrap.querySelector(".spark-chip"), n = series.length;
   const show = el => {
     chip.textContent = `${euDate(el.dataset.date)} · ${rateVs(+el.dataset.val)}`;
-    chip.style.left = (n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50) + "%";
+    // clamp so the (translateX(-50%)-centred) chip never pokes past the wrap: an
+    // overflowing chip widened the page and shifted the tab bar off-screen
+    const half = chip.offsetWidth / 2 / wrap.clientWidth * 100;
+    const pct = n > 1 ? (+el.dataset.i) / (n - 1) * 100 : 50;
+    chip.style.left = Math.min(Math.max(pct, half), 100 - half) + "%";
     chip.classList.add("show");
   };
   const hide = () => chip.classList.remove("show");
@@ -241,12 +255,13 @@ function deckLbHtml(rows, clickable = true) {
   }).join("");
 }
 
-/* "Recently played" — a subject's last 3 distinct decks (resolvable to a stored deck). */
+/* "Recently played" — a subject's last 3 games (one card per game, so back-to-back
+   games with the same deck each get their own card). */
 function recentBlock(games, pid, clickable) {
   const recent = [];
   for (const g of games.slice().sort((x, y) => y.date.localeCompare(x.date) || y.id.localeCompare(x.id))) {
     const s = M.seatOf(g, pid); const id = s?.deckId;
-    if (id && S.deckById(id) && !recent.some(r => r.id === id)) recent.push({ id, date: g.date, place: s.placement, pod: g.seats.length });
+    if (id && S.deckById(id)) recent.push({ id, date: g.date, place: s.placement, pod: g.seats.length });
     if (recent.length === 3) break;
   }
   if (!recent.length) return "";
