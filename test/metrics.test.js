@@ -452,6 +452,14 @@ test("placeInfo/effRank: impossible placements are capped at pod size (stay zero
   assert.ok(Math.abs(total - 2) < 1e-9);
 });
 
+test("degenerate 1-seat game yields null rating, not NaN", () => {
+  assert.equal(normalizedScore(1, 1), null);
+  const solo = { id: "g", date: "2026-01-01", seats: [{ playerId: "me", deckId: "d", placement: 1 }] };
+  const a = aggregateDeck([solo]);
+  assert.ok(!Number.isNaN(a.avgNorm));
+  assert.equal(a.avgNorm, null);   // nothing scoreable -> dash in the UI, not "NaN"
+});
+
 /* ---------- real seed data smoke test ---------- */
 test("aggregates real games.json without throwing", () => {
   const raw = readFileSync(join(__dirname, "../data/games.json"), "utf8");

@@ -132,7 +132,7 @@ function heroSpark(points, w = 150, h = 40) {
   const dots = points.map((p, i) =>
     `<span class="spark-dot${i === points.length - 1 ? " end" : ""}"
        style="left:${(i / (data.length - 1) * 100).toFixed(2)}%;top:${(Y(p.v) / h * 100).toFixed(2)}%;background:${heroCol(p.v)}"
-       data-i="${i}" data-date="${p.date}" data-val="${p.v}"></span>`).join("");
+       data-i="${i}" data-date="${esc(p.date)}" data-val="${p.v}"></span>`).join("");
   // Current form label, pinned to the top-right or bottom-right corner of the box —
   // whichever has more clearance. Hugging the last dot doesn't work in a 40px-tall plot:
   // rolling-form curves cluster, so the spots right above/below the dot are usually
@@ -544,7 +544,7 @@ function renderRivals() {
     const seg = (n, color) => n ? `<span style="width:${n / tot * 100}%;background:${color}"></span>` : "";
     const leg = (color, label, n, always = false) => (n || always) ? `<i><span class="dot" style="background:${color}"></span>${label} ${n}</i>` : "";
     const top = topCommander(games, id);
-    return `<div class="h2h" data-rival="${id}">
+    return `<div class="h2h" data-rival="${esc(id)}">
       <div class="h2h-art">${rowArt(top?.art, top?.ci)}</div>
       <div class="h2h-body">
         <div class="top"><span class="who">${esc(name)} ›</span><span class="rec">${h.together} games</span></div>
@@ -617,7 +617,9 @@ function setPodSize(n) {
 }
 function repeatLastPod() {
   syncDraftFromDom();
-  const last = allGames().at(-1); if (!last) return toast("No previous pod");
+  // latest by date (insertion order lies after an import/backfill)
+  const last = allGames().sort((a, b) => a.date.localeCompare(b.date) || String(a.id).localeCompare(b.id)).at(-1);
+  if (!last) return toast("No previous pod");
   const opps = last.seats.filter(s => s.playerId !== "me");
   draft.podSize = last.seats.length;
   draft.opponents = opps.map(s => { const d = s.deckId ? S.deckById(s.deckId) : null;
@@ -661,7 +663,7 @@ function renderQuickLog() {
     <button class="btn-primary" id="start-live" style="margin-bottom:6px">▶ Start a live game</button>
     <p class="hint" style="margin-top:0">Set up the pod now, fill in finishing order at the end.</p>
     <div class="section-head"><h2>Or quick-log a finished game</h2></div>
-    <div class="field"><label>Date</label><input id="log-date" type="date" value="${draft.date}" /></div>
+    <div class="field"><label>Date</label><input id="log-date" type="date" value="${esc(draft.date)}" /></div>
     <div class="field"><label>My deck</label>
       <div class="part-row me">
         <div class="part-art" id="my-art">${rowArt(myDeck?.art, myDeck?.ci, myDeck?.art2)}</div>
@@ -708,6 +710,8 @@ function saveGame() {
   syncDraftFromDom();
   if (!draft.deckId) return toast("Pick a deck");
   if (!draft.myPlacement) return toast("Set your placement");
+  const pids = draft.opponents.map(o => o.playerId).filter(Boolean);
+  if (new Set(pids).size !== pids.length) return toast("Same player picked twice — head-to-head would double-count them");
   const seats = [{ playerId: "me", deckId: draft.deckId, seat: draft.mySeat, placement: draft.myPlacement }];
   for (const o of draft.opponents) {
     const cmd = (o.commander || "").trim();
@@ -1078,13 +1082,13 @@ function renderLiveGame(g) {
   }).join("");
 
   const addBtns = setup ? `<div class="add-players">
-    ${addable.map(p => `<button class="chip-add" data-add="${p.id}">+ ${esc(p.name)}</button>`).join("")}
+    ${addable.map(p => `<button class="chip-add" data-add="${esc(p.id)}">+ ${esc(p.name)}</button>`).join("")}
     <button class="chip-add" data-add="">+ Guest</button></div>` : "";
 
   return `
     <div class="live-head"><h2>${setup ? "Live game · setup" : "Finishing order"}</h2>
       <button class="back" id="live-cancel">Discard</button></div>
-    ${setup ? `<div class="field" style="margin-top:10px"><label>Date</label><input id="live-date" type="date" value="${g.date}" /></div>` : ""}
+    ${setup ? `<div class="field" style="margin-top:10px"><label>Date</label><input id="live-date" type="date" value="${esc(g.date)}" /></div>` : ""}
     <div class="part-list">${rows}</div>
     ${addBtns}
     ${setup
@@ -1191,7 +1195,7 @@ function renderEdit() {
 
   $("#view-edit").innerHTML = `
     <div class="live-head"><h2>Edit game</h2><button class="back" id="edit-close">‹ Back</button></div>
-    <div class="field"><label>Date</label><input id="ed-date" type="date" value="${g.date}" /></div>
+    <div class="field"><label>Date</label><input id="ed-date" type="date" value="${esc(g.date)}" /></div>
     <div class="part-list">${seatRows}</div>
     <div class="field" style="margin-top:14px"><label>Notes</label><textarea id="ed-notes" placeholder="Notes">${esc(g.notes || "")}</textarea></div>
     <div class="row-actions"><button class="btn-ghost" id="edit-delete" style="color:var(--bad)">Delete game</button><button class="btn-primary" id="edit-save" style="margin-top:0">Save changes</button></div>`;
@@ -1217,6 +1221,8 @@ function renderEdit() {
 function saveEdit() {
   const v = $("#view-edit");
   const g = editDraft;
+  const pids = [...v.querySelectorAll(".ed-player")].map(s => s.value).filter(Boolean);
+  if (new Set(pids).size !== pids.length) return toast("Same player picked twice — head-to-head would double-count them");
   g.date = v.querySelector("#ed-date").value;
   g.notes = v.querySelector("#ed-notes").value.trim();
   v.querySelectorAll(".part-row").forEach(row => {

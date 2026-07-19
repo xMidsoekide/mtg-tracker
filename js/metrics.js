@@ -7,7 +7,7 @@
 export const won = (placement) => placement === 1;
 
 export const normalizedScore = (placement, podSize) =>
-  (podSize - placement) / (podSize - 1);
+  podSize < 2 ? null : (podSize - placement) / (podSize - 1);   // a 1-seat game is unscoreable, not 0/0
 
 export const expectedWR = (podSize) => 1 / podSize;
 
@@ -69,7 +69,7 @@ export function aggregateDeck(games, playerId = "me") {
   const scored = present.filter((m) => m.eff != null);
   const n = scored.length;
   const placements = scored.map((m) => m.eff);
-  const norms = scored.map((m) => normalizedScore(m.eff, m.size));
+  const norms = scored.map((m) => normalizedScore(m.eff, m.size)).filter((x) => x != null);
   const wins = placements.filter(won).length;   // eff 1 = sole 1st; a shared 1st (1.5) isn't a win
   const actualWR = n ? wins / n : null;
   const expWR = n ? mean(scored.map((m) => expectedWR(m.size))) : null;
@@ -134,7 +134,7 @@ export function seatBreakdown(games) {
     const scoredGames = inSeat.filter((g) => effRank(g) != null);   // placement-less games would poison the means
     const placements = scoredGames.map((g) => effRank(g));
     const exps = scoredGames.map((g) => expectedWR(podSize(g)));
-    const norms = scoredGames.map((g) => normalizedScore(effRank(g), podSize(g)));
+    const norms = scoredGames.map((g) => normalizedScore(effRank(g), podSize(g))).filter((x) => x != null);
     const wins = placements.filter(won).length;
     const actualWR = scoredGames.length ? wins / scoredGames.length : null;
     const expWR = mean(exps);
