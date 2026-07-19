@@ -19,6 +19,7 @@ import {
   bogeyDecks,
   wilson,
   confidence,
+  shrunk,
 } from "../js/metrics.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -458,6 +459,15 @@ test("degenerate 1-seat game yields null rating, not NaN", () => {
   const a = aggregateDeck([solo]);
   assert.ok(!Number.isNaN(a.avgNorm));
   assert.equal(a.avgNorm, null);   // nothing scoreable -> dash in the UI, not "NaN"
+});
+
+/* ---------- shrunk: sample-size-aware ranking score ---------- */
+test("shrunk: pulls small samples toward 5.0 so 1 lucky game can't top the leaderboard", () => {
+  const oneGame10 = shrunk(1.0, 1);     // 10.0 rating over 1 game
+  const twelve71 = shrunk(0.71, 12);    // 7.1 rating over 12 games
+  assert.ok(twelve71 > oneGame10);
+  assert.equal(shrunk(null, 0), null);
+  assert.ok(Math.abs(shrunk(0.8, 1000) - 0.8) < 0.01);   // converges to the raw value
 });
 
 /* ---------- real seed data smoke test ---------- */

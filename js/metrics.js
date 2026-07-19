@@ -210,6 +210,15 @@ export function bogeyDecks(games) {
   return out;
 }
 
+/* ---------- shrunk ---------- */
+/* Empirical-Bayes shrinkage for ranking by avgNorm: pull toward the 0.5 prior by k
+   pseudo-games, so a 1-game 10.0 can't outrank a 12-game 7.1. Display the raw value;
+   sort by this. k=3 ≈ "trust it after roughly a night of games". */
+export function shrunk(avgNorm, n, k = 3) {
+  if (avgNorm == null) return null;
+  return (avgNorm * n + 0.5 * k) / (n + k);
+}
+
 /* ---------- wilson ---------- */
 /* Wilson score 95% interval on the underlying win probability.
    Returns {low:0, high:0} for n=0 to avoid divide-by-zero. */

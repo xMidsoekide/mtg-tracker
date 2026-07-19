@@ -253,11 +253,12 @@ function wireSpark(view, series) {
 }
 
 /* Shared ranked deck list (the "Finish rating" leaderboard). `clickable` opens the deck detail
-   (only meaningful for my own decks). */
+   (only meaningful for my own decks). Ordered by the sample-size-shrunk rating so one lucky
+   game doesn't top the list; the displayed number stays the raw rating. */
 function deckLbHtml(rows, clickable = true) {
   return rows.slice().sort((x, y) => {
     if (!x.games) return 1; if (!y.games) return -1;
-    return (y.finishVsAvg ?? -9) - (x.finishVsAvg ?? -9);
+    return (M.shrunk(y.avgNorm, y.scored ?? y.games) ?? -9) - (M.shrunk(x.avgNorm, x.scored ?? x.games) ?? -9);
   }).map((d, i) => {
     const nav = clickable && d.id ? ` data-deck="${d.id}"` : ` style="cursor:default"`;
     const idCell = `<div style="display:flex;align-items:center;gap:9px;min-width:0">${artCI(d, "art", artPosOf(d))}
@@ -615,6 +616,15 @@ function setPodSize(n) {
   if (draft.mySeat > n) draft.mySeat = n;
   renderLog();
 }
+/* a player's most recently played (still-existing) deck — prefill when they're picked */
+function latestDeckOf(pid) {
+  for (const g of allGames().sort((x, y) => y.date.localeCompare(x.date) || String(y.id).localeCompare(String(x.id)))) {
+    const s = M.seatOf(g, pid);
+    if (s?.deckId && S.deckById(s.deckId)) return S.deckById(s.deckId);
+  }
+  return null;
+}
+
 function repeatLastPod() {
   syncDraftFromDom();
   // latest by date (insertion order lies after an import/backfill)
@@ -695,6 +705,19 @@ function renderQuickLog() {
   v.querySelector("#seat-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; draft.mySeat = +c.dataset.seat; v.querySelectorAll("#seat-choice .chip").forEach(x => x.classList.toggle("on", x === c)); });
   v.querySelector("#place-choice").addEventListener("click", e => { const c = e.target.closest(".chip"); if (!c) return; draft.myPlacement = +c.dataset.place; v.querySelectorAll("#place-choice .chip").forEach(x => x.classList.toggle("on", x === c)); });
   v.querySelectorAll(".opp-place").forEach((sel, i) => sel.addEventListener("change", () => draft.opponents[i].placement = sel.value ? +sel.value : null));
+  // picking a friend prefills their most recent deck — the common case in a fixed group
+  v.querySelectorAll(".opp-player").forEach(sel => sel.addEventListener("change", () => {
+    const i = +sel.closest(".opp-block").dataset.i;
+    const o = draft.opponents[i];
+    o.playerId = sel.value;
+    if (sel.value && !(o.commander || "").trim()) {
+      const d = latestDeckOf(sel.value);
+      if (d) {
+        Object.assign(o, { commander: d.commander, commander2: d.commander2 || null, art: d.art || null, art2: d.art2 || null, ci: d.ci || [] });
+        renderQuickLog();
+      }
+    }
+  }));
   v.querySelectorAll(".opp-picker").forEach(mount => {
     const i = +mount.dataset.i;
     makePicker(mount, draft.opponents[i], upd => {
@@ -797,8 +820,8 @@ function renderSettings() {
       <div class="placement-grid" id="min-choice">${[1,2,3,5,8].map(n => `<div class="chip ${st.minGames===n?"on":""}" data-min="${n}">${n}</div>`).join("")}</div></div>
     <div class="set-card"><h3>Backup</h3>
       <p>Your data lives in this browser. Export a JSON copy, or import one to restore / move devices.</p>
-      <div class="row-actions"><button class="btn-ghost" id="export-btn">Export</button><button class="btn-ghost" id="import-btn">Import</button></div>
-      <textarea id="io-box" placeholder="Paste JSON here to import…" style="margin-top:10px;min-height:90px"></textarea></div>
+      <div class="row-actions"><button class="btn-ghost" id="export-btn">⬇ Download backup</button><button class="btn-ghost" id="import-btn">⬆ Import file…</button></div>
+      <input id="import-file" type="file" accept=".json,application/json" style="display:none" /></div>
     <p class="hint" id="app-version" style="text-align:center"></p>`;
   const v = $("#view-settings");
   // shell version, asked from the controlling service worker — shows which deploy this device runs
@@ -814,10 +837,24 @@ function renderSettings() {
     MIN_GAMES = +c.dataset.min; S.setSetting("minGames", MIN_GAMES); markDirty(); renderSettings();
   });
   v.querySelector("#manage-decks").addEventListener("click", openDecks);
-  v.querySelector("#export-btn").addEventListener("click", () => { v.querySelector("#io-box").value = S.exportJson(); toast("Exported below"); });
-  v.querySelector("#import-btn").addEventListener("click", () => {
-    try { S.importJson(v.querySelector("#io-box").value); MIN_GAMES = S.settings().minGames ?? MIN_GAMES; markDirty(); toast("Imported"); switchTab("dash"); }
-    catch { toast("Invalid JSON"); }
+  v.querySelector("#export-btn").addEventListener("click", () => {
+    const blob = new Blob([S.exportJson()], { type: "application/json" });
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(blob), download: `mtg-tracker-${today()}.json` });
+    a.click(); URL.revokeObjectURL(a.href);
+  });
+  v.querySelector("#import-btn").addEventListener("click", () => v.querySelector("#import-file").click());
+  v.querySelector("#import-file").addEventListener("change", async e => {
+    const file = e.target.files[0]; if (!file) return;
+    try {
+      const next = S.validateState(JSON.parse(await file.text()));
+      // count diff before replacing — importing an old backup over newer data must be a choice
+      const mine = S.games().length;
+      if (!confirm(`Import has ${next.games.length} games; this device has ${mine}. Replace everything with the file?`)) return;
+      S.importJson(JSON.stringify(next));
+      MIN_GAMES = S.settings().minGames ?? MIN_GAMES; markDirty(); toast("Imported"); switchTab("dash");
+    } catch (err) { toast(err.message || "Invalid backup file"); }
+    finally { e.target.value = ""; }
   });
   v.querySelector("#sync-connect")?.addEventListener("click", async () => {
     const tok = v.querySelector("#gist-token").value.trim();
@@ -917,7 +954,10 @@ function startLive() {
 function liveAdd(playerId) {
   const g = S.getActive();
   const p = playerId ? S.playerById(playerId) : null;
-  g.participants.push({ uid: uid(), playerId: playerId || null, name: p ? p.name : "Guest", commander: "", commander2: null, art: null, art2: null, ci: [], second: null, deckId: null });
+  const d = playerId ? latestDeckOf(playerId) : null;   // prefill their most recent deck
+  g.participants.push({ uid: uid(), playerId: playerId || null, name: p ? p.name : "Guest",
+    commander: d?.commander || "", commander2: d?.commander2 || null,
+    art: d?.art || null, art2: d?.art2 || null, ci: d?.ci || [], second: null, deckId: null });
   saveActive(g); renderLog();
 }
 function liveRemove(u) { const g = S.getActive(); g.participants = g.participants.filter(p => p.uid !== u); saveActive(g); renderLog(); }
